@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+go_version="1.26.0"
+
+install_go() {
+  local goarch archive checksum tmpdir
+  case "$(uname -m)" in
+    x86_64) goarch="amd64" ;;
+    aarch64|arm64) goarch="arm64" ;;
+    *)
+      echo "Unsupported architecture for Go: $(uname -m)" >&2
+      return 1
+      ;;
+  esac
+
+  archive="go${go_version}.linux-${goarch}.tar.gz"
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' RETURN
+
+  echo "Installing Go ${go_version} (${goarch})"
+  curl -fsSL "https://go.dev/dl/${archive}" -o "${tmpdir}/${archive}"
+  checksum="$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | python3 -c '
+import json, sys
+version, archive = sys.argv[1:]
+for release in json.load(sys.stdin):
+    if release["version"] != f"go{version}":
+        continue
+    for file in release["files"]:
+        if file["filename"] == archive:
+            print(file["sha256"])
+            raise SystemExit
+raise SystemExit(f"No checksum published for {archive}")
+' "$go_version" "$archive")"
+  printf '%s  %s\n' "$checksum" "${tmpdir}/${archive}" | sha256sum --check --status
+
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf "${tmpdir}/${archive}"
+  ln -sfn /usr/local/go/bin/go /usr/local/bin/go
+  ln -sfn /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+}
+
+if ! command -v go >/dev/null 2>&1 || [[ "$(go env GOVERSION 2>/dev/null || true)" != "go${go_version}" ]]; then
+  install_go
+fi
+
+echo "Using $(go version)"
+
+if [[ -f go.mod ]]; then
+  echo "Downloading Go modules"
+  go mod download
+fi
+
+if [[ -f web/package.json ]]; then
+  echo "Installing frontend dependencies"
+  if [[ -f web/bun.lock ]]; then
+    bun install --cwd web --frozen-lockfile
+  else
+    bun install --cwd web
+  fi
+fi

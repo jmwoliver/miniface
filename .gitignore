@@ -1,0 +1,24 @@
+# Local runtime state
+/data/
+/.miniface/
+/.amp/
+
+# Frontend dependencies and generated Svelte metadata
+/web/node_modules/
+/web/.svelte-kit/
+
+# Go build and test outputs
+/miniface
+/coverage.out
+
+# Obsolete local dependency source copy
+/third_party/xet-go/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+*.swp
