@@ -15,17 +15,18 @@ The product promise is **“Your models, close at hand.”**
 
 ### Mark
 
-The mark combines a small face with two stacked storage layers. It represents the name, a model repository, and the local server in one shape. The chartreuse light is the local/connected signal.
+The **Pocket Face** mark places a round, smiling face inside a compact repository pocket. Closed crescent eyes and a centered, tongue-free smile give it warmth; the resting hands and pocket keep it specific to Miniface. The persimmon dot is the local/connected signal.
 
 - Source component: `src/lib/BrandMark.svelte`
 - Standalone browser mark: `static/favicon.svg`
 - Minimum UI size: 28 px
 - Keep at least one eye-width of clear space around the mark.
-- Do not recolor individual features, add gradients, rotate the mark, or place it on a low-contrast violet background.
+- Use the primary pine-on-parchment mark on light surfaces and the reversed parchment-on-pine mark on dark surfaces.
+- Keep the circular head ring visible. Do not remove it, change the expression, add a tongue, recolor individual features, add gradients, or rotate the mark.
 
 ### Wordmark and voice
 
-The wordmark is lowercase **miniface** in Manrope, heavy weight, with tight tracking. Product copy uses short, direct sentences and names the user's outcome first.
+The wordmark is lowercase **miniface** in Bricolage Grotesque, 700 weight, with tight tracking. Product copy uses short, direct sentences and names the user's outcome first.
 
 Prefer:
 
@@ -42,29 +43,31 @@ Avoid vague labels such as “Submit,” “Process,” “AI-powered,” and �
 
 | Token | Value | Role |
 | --- | --- | --- |
-| Graphite | `#202026` | Navigation, code, strongest text |
-| Paper | `#F3F3EE` | App canvas |
-| Warm white | `#FFFEF9` | Primary surfaces |
-| Electric violet | `#6758F3` | Primary action, selection, links |
-| Signal chartreuse | `#C7F36B` | Connected/local accent only |
+| Pine | `#173B36` | Navigation, primary actions, brand structure |
+| Parchment | `#F5F1E8` | App canvas and reversed brand details |
+| Persimmon | `#F06A47` | Local/active signal and sparing emphasis |
+| Sage | `#99B38C` | Supporting fills, efficiency, and quiet accents |
+| Dark ink | `#202825` | Strongest text and code surfaces |
+| Warm white | `#FEFCF6` | Primary surfaces |
 | Success | `#147357` | Completed, valid, public access |
 | Warning | `#946018` | Gated access, validation warnings |
 | Danger | `#B33D48` | Failed work, cancel actions, errors |
-| Muted text | `#71716F` | Secondary information |
-| Border | `#DEDED6` | Surface and data-row boundaries |
+| Muted text | `#68716D` | Secondary information |
+| Border | `#D8D3C8` | Surface and data-row boundaries |
 
-Violet communicates intent; chartreuse communicates a live/local signal. Do not use chartreuse as a general call-to-action color. Status colors always appear with text or an icon, never as color alone.
+Pine communicates intent; persimmon communicates a live/local signal. Persimmon is not a general call-to-action fill. Sage supports information and efficiency without competing with status colors. Status colors always appear with text or an icon, never as color alone.
 
 ### Typography
 
-- **Interface:** Manrope Variable, 400–800. Its open forms keep small data readable while giving the wordmark character.
-- **Code and identifiers:** JetBrains Mono Variable, 400–700.
+- **Wordmark and display:** Bricolage Grotesque Variable, 200–800. Use 700 for the wordmark and primary headings.
+- **Interface and body:** Instrument Sans Variable, 400–700. Its quiet, open forms keep dense model data readable.
+- **Code and identifiers:** Fragment Mono, 400.
 - Page title: 32–46 px, tight tracking, 1.02 line height.
 - Section title: 15–20 px.
 - Body: 12–14 px.
 - Dense metadata: 9–11 px; never below 9 px.
 
-Both font families are bundled at build time. Miniface makes no public font request.
+All three font families are bundled at build time. Miniface makes no public font request.
 
 ### Space, shape, and elevation
 
@@ -201,7 +204,7 @@ Every server-backed view has loading, empty, error, and populated states. Copy a
 ## Accessibility and responsive behavior
 
 - Semantic landmarks, one main heading per page, labels for every field, and tab/radio roles mirror the visible interaction.
-- Keyboard focus uses a violet ring that is visible on paper and graphite surfaces.
+- Keyboard focus uses a persimmon ring that is visible on parchment and pine surfaces.
 - Status always combines color with an icon or text.
 - A skip link bypasses navigation.
 - Touch layouts preserve at least 36 px controls and use 52 px bottom-navigation targets.

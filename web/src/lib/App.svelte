@@ -1,6 +1,7 @@
 <script lang="ts">
-  import '@fontsource-variable/manrope/wght.css';
-  import '@fontsource-variable/jetbrains-mono/wght.css';
+  import '@fontsource-variable/bricolage-grotesque/wght.css';
+  import '@fontsource-variable/instrument-sans/wght.css';
+  import '@fontsource/fragment-mono/400.css';
   import {
     Activity,
     ArrowLeft,
@@ -449,7 +450,7 @@
 
 {#if !session}
   <main class="boot-screen">
-    <div class="boot-brand"><BrandMark size={44} /><span>miniface</span></div>
+    <div class="boot-brand"><BrandMark size={44} reversed /><span>miniface</span></div>
     {#if bootError}
       <CircleAlert size={24} />
       <p>{bootError}</p>
@@ -462,7 +463,7 @@
 {:else if !session.authenticated}
   <main class="auth-shell">
     <section class="auth-story" aria-label="About Miniface">
-      <div class="brand-lockup"><BrandMark size={44} /><span>miniface</span></div>
+      <div class="brand-lockup"><BrandMark size={44} reversed /><span>miniface</span></div>
       <div class="auth-message">
         <span class="kicker inverse">Local model registry</span>
         <h1>Keep your models<br />close at hand.</h1>
@@ -515,7 +516,7 @@
   <div class="app-shell">
     <aside class="sidebar">
       <button class="sidebar-brand" aria-label="Miniface models" onclick={() => go('/models')}>
-        <BrandMark size={36} />
+        <BrandMark size={36} reversed />
         <span>miniface</span>
         <small>local</small>
       </button>
@@ -611,7 +612,7 @@
                 </div>
                 <p class="architecture">{model.architecture || 'Architecture not detected'}</p>
                 <div class="badges">
-                  <span class="badge violet">{model.kind || 'unknown'}</span>
+                  <span class="badge brand">{model.kind || 'unknown'}</span>
                   {#if model.quantization}<span class="badge">{model.quantization}</span>{/if}
                   <span class={`badge status-${model.validation_status === 'valid' ? 'success' : 'warning'}`}>{model.validation_status}</span>
                 </div>
@@ -631,7 +632,7 @@
             {#each filtered as model}
               <button class="model-row" onclick={() => go(`/models/${model.owner}/${model.name}`)}>
                 <span class="model-row-name"><i><FileBox size={18} /></i><span><strong>{model.owner}/{model.name}</strong><small>{model.architecture || 'Architecture not detected'} · <code>{shortSha(model.sha)}</code></small></span></span>
-                <span><span class="badge violet">{model.kind || 'unknown'}</span></span>
+                <span><span class="badge brand">{model.kind || 'unknown'}</span></span>
                 <span class="row-value">{formatBytes(model.logical_bytes)}</span>
                 <span class="row-value">{formatRelativeDate(model.updated_at)}</span>
                 <span class="row-arrow"><ArrowRight size={16} /></span>
@@ -650,7 +651,7 @@
               <div class="repository-glyph"><FileBox size={24} /></div>
               <div>
                 <div class="badges compact-badges">
-                  <span class="badge violet">{detail.model.kind || 'unknown'}</span>
+                  <span class="badge brand">{detail.model.kind || 'unknown'}</span>
                   <span class={`badge status-${detail.model.validation_status === 'valid' ? 'success' : 'warning'}`}>{detail.model.validation_status}</span>
                 </div>
                 <h1><span>{detail.model.owner}/</span>{detail.model.name}</h1>
@@ -731,7 +732,7 @@
                   <article>
                     <div class="timeline-marker"><GitCommitHorizontal size={16} /></div>
                     <div class="revision-body">
-                      <div><h3>{revision.message || 'Untitled revision'}</h3>{#if index === 0}<span class="badge violet">current</span>{/if}</div>
+                      <div><h3>{revision.message || 'Untitled revision'}</h3>{#if index === 0}<span class="badge brand">current</span>{/if}</div>
                       <p>{revision.author} · {formatDate(revision.created_at)} · {revision.file_count} files</p>
                       <button class="commit-copy" onclick={() => copyText(revision.oid, `revision-${revision.oid}`)}><code>{revision.oid}</code>{#if copied === `revision-${revision.oid}`}<Check size={14} />{:else}<Copy size={14} />{/if}</button>
                     </div>
@@ -937,9 +938,9 @@
           <div class="empty-state compact"><LoaderCircle class="spin" size={24} /><h2>Reading storage</h2></div>
         {:else}
           <div class="storage-stats">
-            <article class="surface stat-card"><span class="stat-icon violet"><Database size={19} /></span><div><span>Logical library</span><strong>{formatBytes(storage.logical_bytes)}</strong><small>Visible repository content</small></div></article>
-            <article class="surface stat-card"><span class="stat-icon graphite"><HardDrive size={19} /></span><div><span>On disk</span><strong>{formatBytes(storage.physical_bytes)}</strong><small>Physical bytes stored</small></div></article>
-            <article class="surface stat-card"><span class="stat-icon lime"><Gauge size={19} /></span><div><span>Deduplication</span><strong>{storage.dedup_ratio.toFixed(2)}×</strong><small>{dedupSavings(storage.dedup_ratio).toFixed(0)}% physical savings</small></div></article>
+            <article class="surface stat-card"><span class="stat-icon pine"><Database size={19} /></span><div><span>Logical library</span><strong>{formatBytes(storage.logical_bytes)}</strong><small>Visible repository content</small></div></article>
+            <article class="surface stat-card"><span class="stat-icon ink"><HardDrive size={19} /></span><div><span>On disk</span><strong>{formatBytes(storage.physical_bytes)}</strong><small>Physical bytes stored</small></div></article>
+            <article class="surface stat-card"><span class="stat-icon sage"><Gauge size={19} /></span><div><span>Deduplication</span><strong>{storage.dedup_ratio.toFixed(2)}×</strong><small>{dedupSavings(storage.dedup_ratio).toFixed(0)}% physical savings</small></div></article>
           </div>
           <div class="storage-grid">
             <section class="surface efficiency-card">
