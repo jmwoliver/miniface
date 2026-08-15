@@ -1,104 +1,999 @@
 <script lang="ts">
+  import '@fontsource-variable/manrope/wght.css';
+  import '@fontsource-variable/jetbrains-mono/wght.css';
+  import {
+    Activity,
+    ArrowLeft,
+    ArrowRight,
+    Check,
+    CircleAlert,
+    CircleCheck,
+    CircleX,
+    Clock3,
+    CloudDownload,
+    Code,
+    Copy,
+    Database,
+    Eye,
+    EyeOff,
+    FileBox,
+    FileText,
+    FolderInput,
+    Gauge,
+    GitCommitHorizontal,
+    HardDrive,
+    Info,
+    KeyRound,
+    Layers,
+    LayoutGrid,
+    List as ListIcon,
+    LoaderCircle,
+    LogOut,
+    Plus,
+    RefreshCw,
+    Search,
+    Server,
+    Settings2,
+    ShieldCheck,
+    SquareStack,
+    SquareTerminal,
+    TriangleAlert,
+    Upload,
+    X
+  } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import { api } from './api';
-  import { formatBytes, formatDate, normalizeProgress, shortSha } from './format';
+  import BrandMark from './BrandMark.svelte';
+  import {
+    dedupSavings,
+    formatBytes,
+    formatDate,
+    formatRelativeDate,
+    normalizeProgress,
+    shortSha
+  } from './format';
   import type { HuggingFaceModel, Job, ModelDetail, ModelSummary, Session, Storage } from './types';
+  import './app.css';
 
-  let session:Session|null=null, bootError='', token='', loginError='', busy=false, path='/', search='', cancelingJob='', jobActionError='';
-  let models:ModelSummary[]|null=null, jobs:Job[]|null=null, storage:Storage|null=null, detail:ModelDetail|null=null, error='';
-  let tab='overview', importSource:'local'|'huggingface'='local', importPath='', repoId='', message='Import local model', feedback='';
-  let hubRepo='', hubRevision='main', hubToken='', hubResults:HuggingFaceModel[]=[], hubSelected:HuggingFaceModel|null=null, hubSearching=false, hubSearchError='', hubSearchTimer:ReturnType<typeof setTimeout>|undefined, hubSearchGeneration=0, lastHubDefault='';
-  let card='', cardMessage='Update model card';
-  const nav=[['/models','Models','▦'],['/imports','Imports','⇧'],['/jobs','Jobs','◌'],['/storage','Storage','◫'],['/settings','Settings','⚙']];
-  const detailTabs=[['overview','overview'],['files','files'],['revisions','revisions'],['usage','usage'],['model card','model-card']];
-  $: parts=path.split('/').filter(Boolean);
-  $: section=parts[0] || 'models';
-  $: filtered=(models??[]).filter(m=>`${m.owner}/${m.name} ${m.kind} ${m.architecture}`.toLowerCase().includes(search.toLowerCase()));
+  type ModelView = 'grid' | 'list';
+  type ModelSort = 'updated' | 'name' | 'size';
+  type JobFilter = 'all' | 'active' | 'completed';
+
+  let session: Session | null = null;
+  let bootError = '';
+  let token = '';
+  let showLoginToken = false;
+  let loginError = '';
+  let busy = false;
+  let path = '/';
+  let error = '';
+
+  let models: ModelSummary[] | null = null;
+  let search = '';
+  let modelView: ModelView = 'grid';
+  let modelSort: ModelSort = 'updated';
+
+  let detail: ModelDetail | null = null;
+  let tab = 'overview';
+  let card = '';
+  let cardMessage = 'Update model card';
+  let cardFeedback = '';
+  let cardFeedbackTone: 'success' | 'error' = 'success';
+
+  let importSource: 'local' | 'huggingface' = 'local';
+  let importPath = '';
+  let repoId = '';
+  let message = 'Import local model';
+  let importFeedback = '';
+  let importFeedbackTone: 'success' | 'error' = 'success';
+  let queuedJob = '';
+  let hubRepo = '';
+  let hubRevision = 'main';
+  let hubToken = '';
+  let showHubToken = false;
+  let hubResults: HuggingFaceModel[] = [];
+  let hubSelected: HuggingFaceModel | null = null;
+  let hubSearching = false;
+  let hubSearchError = '';
+  let hubSearchTimer: ReturnType<typeof setTimeout> | undefined;
+  let hubSearchGeneration = 0;
+  let lastHubDefault = '';
+
+  let jobs: Job[] | null = null;
+  let jobFilter: JobFilter = 'all';
+  let cancelingJob = '';
+  let jobActionError = '';
+  let refreshingJobs = false;
+  let expandedJob = '';
+
+  let storage: Storage | null = null;
+  let copied = '';
+  let toast = '';
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const nav = [
+    { path: '/models', label: 'Models', icon: Layers },
+    { path: '/imports', label: 'Import', icon: Upload },
+    { path: '/jobs', label: 'Activity', icon: Activity },
+    { path: '/storage', label: 'Storage', icon: HardDrive },
+    { path: '/settings', label: 'Settings', icon: Settings2 }
+  ];
+  const detailTabs = [
+    { label: 'Overview', slug: 'overview' },
+    { label: 'Files', slug: 'files' },
+    { label: 'Revisions', slug: 'revisions' },
+    { label: 'Use model', slug: 'usage' },
+    { label: 'Model card', slug: 'model-card' }
+  ];
+
+  $: parts = path.split('/').filter(Boolean);
+  $: section = parts[0] || 'models';
+  $: filtered = (models ?? [])
+    .filter((model) =>
+      `${model.owner}/${model.name} ${model.kind} ${model.architecture} ${model.quantization}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase())
+    )
+    .sort((left, right) => {
+      if (modelSort === 'name') return `${left.owner}/${left.name}`.localeCompare(`${right.owner}/${right.name}`);
+      if (modelSort === 'size') return right.logical_bytes - left.logical_bytes;
+      return new Date(right.updated_at).valueOf() - new Date(left.updated_at).valueOf();
+    });
+  $: activeJobCount = (jobs ?? []).filter(isActiveJob).length;
+  $: completedJobCount = (jobs ?? []).filter((job) => job.state === 'completed').length;
+  $: visibleJobs = (jobs ?? []).filter((job) => {
+    if (jobFilter === 'active') return isActiveJob(job);
+    if (jobFilter === 'completed') return !isActiveJob(job);
+    return true;
+  });
   $: if (session?.authenticated) loadPath(path);
 
-  onMount(()=>{ path=location.pathname; const pop=()=>path=location.pathname; addEventListener('popstate',pop); api.session().then(s=>session=s).catch(e=>bootError=e.message); return()=>removeEventListener('popstate',pop); });
-  function go(to:string){ history.pushState({},'',to); path=to; }
-  async function loadPath(value:string){
-    error='';
+  onMount(() => {
+    path = location.pathname;
+    const savedView = localStorage.getItem('miniface:model-view');
+    const savedSort = localStorage.getItem('miniface:model-sort');
+    if (savedView === 'grid' || savedView === 'list') modelView = savedView;
+    if (savedSort === 'updated' || savedSort === 'name' || savedSort === 'size') modelSort = savedSort;
+
+    const pop = () => (path = location.pathname);
+    addEventListener('popstate', pop);
+    api.session().then((value) => (session = value)).catch((reason) => (bootError = reason.message));
+
+    const polling = window.setInterval(() => {
+      if (session?.authenticated && section === 'jobs' && activeJobCount > 0) void refreshJobs(false);
+    }, 4000);
+
+    return () => {
+      removeEventListener('popstate', pop);
+      clearInterval(polling);
+      if (hubSearchTimer) clearTimeout(hubSearchTimer);
+      if (toastTimer) clearTimeout(toastTimer);
+    };
+  });
+
+  function go(to: string, scroll = true) {
+    if (location.pathname !== to) history.pushState({}, '', to);
+    path = to;
+    if (scroll) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }
+
+  async function loadPath(value: string) {
+    error = '';
     try {
-      const p=value.split('/').filter(Boolean);
-      if (!p.length || p[0]==='models' && p.length===1) { if(!models) models=await api.models(); }
-      else if(p[0]==='models'&&p.length>=3){ const requested=detailTabs.find(([,slug])=>slug===(p[3]||'overview')); tab=requested?.[0]||'overview'; const next=await api.model(p[1],p[2]); detail=next; card=next.card; }
-      else if(p[0]==='jobs') jobs=await api.jobs();
-      else if(p[0]==='storage') storage=await api.storage();
-    } catch(e){ error=e instanceof Error?e.message:'Unable to load this page'; }
+      const route = value.split('/').filter(Boolean);
+      if (!route.length || (route[0] === 'models' && route.length === 1)) {
+        if (!models) models = await api.models();
+      } else if (route[0] === 'models' && route.length >= 3) {
+        const requested = detailTabs.find((candidate) => candidate.slug === (route[3] || 'overview'));
+        tab = requested?.slug || 'overview';
+        const requestedID = `${route[1]}/${route[2]}`;
+        if (detail?.model.id !== requestedID) {
+          detail = null;
+          const next = await api.model(route[1], route[2]);
+          if (path === value) {
+            detail = next;
+            card = next.card;
+            cardFeedback = '';
+          }
+        }
+      } else if (route[0] === 'jobs') {
+        await refreshJobs(false);
+      } else if (route[0] === 'storage') {
+        storage = await api.storage();
+      }
+    } catch (reason) {
+      error = reason instanceof Error ? reason.message : 'Unable to load this page';
+    }
   }
-  async function login(){ busy=true;loginError='';try{session=await api.login(token);token='';}catch(e){loginError=e instanceof Error?e.message:'Sign in failed';}finally{busy=false;} }
-  async function logout(){if(!session?.csrf_token)return; await api.logout(session.csrf_token); session={authenticated:false}; models=null;detail=null;}
-  function chooseImportSource(source:'local'|'huggingface'){if(source===importSource)return;if(message===(importSource==='local'?'Import local model':'Import from Hugging Face'))message=source==='local'?'Import local model':'Import from Hugging Face';importSource=source;feedback='';}
-  function scheduleHubSearch(){
-    if(hubSearchTimer)clearTimeout(hubSearchTimer);
-    const query=hubRepo.trim(),generation=++hubSearchGeneration;
-    hubResults=[];hubSelected=null;hubSearchError='';
-    if(query.includes('/')&&(!repoId||repoId===lastHubDefault)){repoId=query;lastHubDefault=query;}
-    if(query.length<2)return;
-    hubSearchTimer=setTimeout(async()=>{hubSearching=true;try{const results=await api.searchHuggingFace(query);if(generation===hubSearchGeneration)hubResults=results;}catch(e){if(generation===hubSearchGeneration)hubSearchError=e instanceof Error?e.message:'Search failed';}finally{if(generation===hubSearchGeneration)hubSearching=false;}},250);
+
+  async function login() {
+    busy = true;
+    loginError = '';
+    try {
+      session = await api.login(token);
+      token = '';
+    } catch (reason) {
+      loginError = reason instanceof Error ? reason.message : 'Sign in failed';
+    } finally {
+      busy = false;
+    }
   }
-  function selectHubModel(model:HuggingFaceModel){const previous=lastHubDefault;hubRepo=model.id;hubSelected=model;hubResults=[];hubSearchGeneration++;if(!repoId||repoId===previous){repoId=model.id;lastHubDefault=model.id;}}
-  async function startImport(){if(!session?.csrf_token)return;busy=true;feedback='';try{const r=importSource==='local'?await api.importLocal({path:importPath,repo_id:repoId,message},session.csrf_token):await api.importHuggingFace({source_repo_id:hubRepo,source_revision:hubRevision,destination_repo_id:repoId,message,token:hubToken},session.csrf_token);feedback=`Import queued as job ${r.job.id}`;if(importSource==='local')importPath='';else hubToken='';models=null;}catch(e){feedback=e instanceof Error?e.message:'Import failed';}finally{busy=false;}}
-  async function cancelJob(job:Job){if(!session?.csrf_token)return;cancelingJob=job.id;jobActionError='';try{const canceled=await api.cancelJob(job.id,session.csrf_token);jobs=jobs?.map(candidate=>candidate.id===canceled.id?canceled:candidate)??null;}catch(e){jobActionError=e instanceof Error?e.message:'Unable to cancel job';}finally{cancelingJob='';}}
-  async function saveCard(){if(!session?.csrf_token||!detail)return;busy=true;feedback='';try{const r=await api.saveCard(detail.model.owner,detail.model.name,card,cardMessage,session.csrf_token);if('model' in r)detail=r;feedback='Model card update submitted.';}catch(e){feedback=e instanceof Error?e.message:'Save failed';}finally{busy=false;}}
-  function endpoint(){return location.origin;}
-  function usage(kind:string){
-    if(!detail)return '';
-    const id=`${detail.model.owner}/${detail.model.name}`,sha=detail.model.sha,url=endpoint();
-    if(kind==='env') return `export HF_ENDPOINT=${url}\nexport HF_TOKEN=mf_your_administrator_token`;
-    if(kind==='hf') return `HF_ENDPOINT=${url} HF_TOKEN=mf_your_administrator_token hf download ${id} --revision ${sha}`;
-    if(kind==='transformers') return `import os\nos.environ["HF_ENDPOINT"] = "${url}"\nos.environ["HF_TOKEN"] = "mf_your_administrator_token"\nfrom transformers import AutoModelForCausalLM, AutoTokenizer\n\ntokenizer = AutoTokenizer.from_pretrained("${id}", revision="${sha}")\nmodel = AutoModelForCausalLM.from_pretrained("${id}", revision="${sha}", trust_remote_code=False)`;
-    if(kind==='unsloth'&&detail.model.kind==='adapter'&&detail.model.base_model&&detail.model.base_revision) return `import os\nos.environ["HF_ENDPOINT"] = "${url}"\nos.environ["HF_TOKEN"] = "mf_your_administrator_token"\nfrom unsloth import FastLanguageModel\nfrom peft import PeftModel\n\nmodel, tokenizer = FastLanguageModel.from_pretrained(\n    model_name="${detail.model.base_model}", revision="${detail.model.base_revision}",\n    use_exact_model_name=True, fast_inference=False,\n)\nmodel = PeftModel.from_pretrained(model, "${id}", revision="${sha}")`;
-    if(kind==='unsloth') return `import os\nos.environ["HF_ENDPOINT"] = "${url}"\nos.environ["HF_TOKEN"] = "mf_your_administrator_token"\nfrom unsloth import FastLanguageModel\n\nmodel, tokenizer = FastLanguageModel.from_pretrained(\n    model_name="${id}", revision="${sha}",\n    use_exact_model_name=True, fast_inference=False,\n)`;
+
+  async function logout() {
+    if (!session?.csrf_token) return;
+    await api.logout(session.csrf_token);
+    session = { authenticated: false };
+    models = null;
+    detail = null;
+    jobs = null;
+  }
+
+  function setModelView(view: ModelView) {
+    modelView = view;
+    localStorage.setItem('miniface:model-view', view);
+  }
+
+  function saveModelSort() {
+    localStorage.setItem('miniface:model-sort', modelSort);
+  }
+
+  function chooseImportSource(source: 'local' | 'huggingface') {
+    if (source === importSource) return;
+    const currentDefault = importSource === 'local' ? 'Import local model' : 'Import from Hugging Face';
+    if (message === currentDefault) message = source === 'local' ? 'Import local model' : 'Import from Hugging Face';
+    importSource = source;
+    importFeedback = '';
+    queuedJob = '';
+  }
+
+  function scheduleHubSearch() {
+    if (hubSearchTimer) clearTimeout(hubSearchTimer);
+    const query = hubRepo.trim();
+    const generation = ++hubSearchGeneration;
+    hubResults = [];
+    hubSelected = null;
+    hubSearchError = '';
+    if (query.includes('/') && (!repoId || repoId === lastHubDefault)) {
+      repoId = query;
+      lastHubDefault = query;
+    }
+    if (query.length < 2) return;
+    hubSearchTimer = setTimeout(async () => {
+      hubSearching = true;
+      try {
+        const results = await api.searchHuggingFace(query);
+        if (generation === hubSearchGeneration) hubResults = results;
+      } catch (reason) {
+        if (generation === hubSearchGeneration) {
+          hubSearchError = reason instanceof Error ? reason.message : 'Search failed';
+        }
+      } finally {
+        if (generation === hubSearchGeneration) hubSearching = false;
+      }
+    }, 250);
+  }
+
+  function selectHubModel(model: HuggingFaceModel) {
+    const previous = lastHubDefault;
+    hubRepo = model.id;
+    hubSelected = model;
+    hubResults = [];
+    hubSearchGeneration++;
+    if (!repoId || repoId === previous) {
+      repoId = model.id;
+      lastHubDefault = model.id;
+    }
+  }
+
+  async function startImport() {
+    if (!session?.csrf_token) return;
+    busy = true;
+    importFeedback = '';
+    queuedJob = '';
+    try {
+      const response =
+        importSource === 'local'
+          ? await api.importLocal({ path: importPath, repo_id: repoId, message }, session.csrf_token)
+          : await api.importHuggingFace(
+              {
+                source_repo_id: hubRepo,
+                source_revision: hubRevision,
+                destination_repo_id: repoId,
+                message,
+                token: hubToken
+              },
+              session.csrf_token
+            );
+      queuedJob = response.job.id;
+      importFeedback = `${repoId} is queued and ready to track.`;
+      importFeedbackTone = 'success';
+      if (importSource === 'local') importPath = '';
+      else hubToken = '';
+      models = null;
+      jobs = null;
+    } catch (reason) {
+      importFeedback = reason instanceof Error ? reason.message : 'Import failed';
+      importFeedbackTone = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function refreshJobs(showActivity = true) {
+    if (showActivity) refreshingJobs = true;
+    try {
+      jobs = await api.jobs();
+    } finally {
+      refreshingJobs = false;
+    }
+  }
+
+  async function cancelJob(job: Job) {
+    if (!session?.csrf_token) return;
+    cancelingJob = job.id;
+    jobActionError = '';
+    try {
+      const canceled = await api.cancelJob(job.id, session.csrf_token);
+      jobs = jobs?.map((candidate) => (candidate.id === canceled.id ? canceled : candidate)) ?? null;
+    } catch (reason) {
+      jobActionError = reason instanceof Error ? reason.message : 'Unable to cancel job';
+    } finally {
+      cancelingJob = '';
+    }
+  }
+
+  async function saveCard() {
+    if (!session?.csrf_token || !detail) return;
+    busy = true;
+    cardFeedback = '';
+    try {
+      const response = await api.saveCard(
+        detail.model.owner,
+        detail.model.name,
+        card,
+        cardMessage,
+        session.csrf_token
+      );
+      if ('model' in response) detail = response;
+      cardFeedback = 'Model card saved as a new immutable revision.';
+      cardFeedbackTone = 'success';
+    } catch (reason) {
+      cardFeedback = reason instanceof Error ? reason.message : 'Save failed';
+      cardFeedbackTone = 'error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function copyText(value: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      copied = key;
+      showToast('Copied to clipboard');
+      window.setTimeout(() => {
+        if (copied === key) copied = '';
+      }, 1800);
+    } catch {
+      showToast('Clipboard access is unavailable');
+    }
+  }
+
+  function showToast(value: string) {
+    toast = value;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ''), 2200);
+  }
+
+  function endpoint() {
+    return location.origin;
+  }
+
+  function settingCode(kind: 'env' | 'download' | 'upload') {
+    if (kind === 'env') {
+      return `export HF_ENDPOINT=${endpoint()}\nexport HF_TOKEN=mf_your_administrator_token`;
+    }
+    if (kind === 'download') {
+      return `export HF_ENDPOINT=${endpoint()}\nexport HF_TOKEN=mf_your_administrator_token\n\nhf download owner/model`;
+    }
+    return `export HF_ENDPOINT=${endpoint()}\nexport HF_TOKEN=mf_your_administrator_token\nexport HF_HUB_DISABLE_XET=1\n\nhf upload owner/model ./output --exclude README.md`;
+  }
+
+  function usage(kind: string) {
+    if (!detail) return '';
+    const id = `${detail.model.owner}/${detail.model.name}`;
+    const sha = detail.model.sha;
+    const url = endpoint();
+    if (kind === 'env') return `export HF_ENDPOINT=${url}\nexport HF_TOKEN=mf_your_administrator_token`;
+    if (kind === 'hf') return `HF_ENDPOINT=${url} HF_TOKEN=mf_your_administrator_token hf download ${id} --revision ${sha}`;
+    if (kind === 'transformers') {
+      return `import os\nos.environ["HF_ENDPOINT"] = "${url}"\nos.environ["HF_TOKEN"] = "mf_your_administrator_token"\nfrom transformers import AutoModelForCausalLM, AutoTokenizer\n\ntokenizer = AutoTokenizer.from_pretrained("${id}", revision="${sha}")\nmodel = AutoModelForCausalLM.from_pretrained("${id}", revision="${sha}", trust_remote_code=False)`;
+    }
+    if (
+      kind === 'unsloth' &&
+      detail.model.kind === 'adapter' &&
+      detail.model.base_model &&
+      detail.model.base_revision
+    ) {
+      return `import os\nos.environ["HF_ENDPOINT"] = "${url}"\nos.environ["HF_TOKEN"] = "mf_your_administrator_token"\nfrom unsloth import FastLanguageModel\nfrom peft import PeftModel\n\nmodel, tokenizer = FastLanguageModel.from_pretrained(\n    model_name="${detail.model.base_model}", revision="${detail.model.base_revision}",\n    use_exact_model_name=True, fast_inference=False,\n)\nmodel = PeftModel.from_pretrained(model, "${id}", revision="${sha}")`;
+    }
+    if (kind === 'unsloth') {
+      return `import os\nos.environ["HF_ENDPOINT"] = "${url}"\nos.environ["HF_TOKEN"] = "mf_your_administrator_token"\nfrom unsloth import FastLanguageModel\n\nmodel, tokenizer = FastLanguageModel.from_pretrained(\n    model_name="${id}", revision="${sha}",\n    use_exact_model_name=True, fast_inference=False,\n)`;
+    }
     return '';
+  }
+
+  function isActiveJob(job: Job) {
+    return job.state === 'queued' || job.state === 'running';
+  }
+
+  function stateTone(state: string) {
+    if (state === 'completed') return 'success';
+    if (state === 'failed') return 'danger';
+    if (state === 'canceled') return 'muted';
+    return 'info';
+  }
+
+  function titleCase(value: string) {
+    return value.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+
+  function compactNumber(value: number) {
+    return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
   }
 </script>
 
-<svelte:head><title>Miniface · Local model registry</title><meta name="description" content="A private, local model registry" /></svelte:head>
+<svelte:head>
+  <title>Miniface · Your models, close at hand</title>
+  <meta name="description" content="A private, local-first model registry" />
+</svelte:head>
 
 {#if !session}
-  <main class="center"><div class="spinner"></div><p>{bootError || 'Connecting to Miniface…'}</p>{#if bootError}<button onclick={()=>location.reload()}>Retry</button>{/if}</main>
+  <main class="boot-screen">
+    <div class="boot-brand"><BrandMark size={44} /><span>miniface</span></div>
+    {#if bootError}
+      <CircleAlert size={24} />
+      <p>{bootError}</p>
+      <button class="button secondary" onclick={() => location.reload()}>Try again</button>
+    {:else}
+      <LoaderCircle class="spin" size={22} />
+      <p>Opening your registry…</p>
+    {/if}
+  </main>
 {:else if !session.authenticated}
-  <main class="auth"><section class="login-card"><div class="brand-mark">M</div><p class="eyebrow">LOCAL MODEL REGISTRY</p><h1>Welcome to Miniface</h1><p class="muted">Sign in with the administrator token generated by your Miniface server.</p><form onsubmit={(e)=>{e.preventDefault();login();}}><label for="token">Access token</label><input id="token" type="password" bind:value={token} required autocomplete="current-password" placeholder="mf_••••••••••••" />{#if loginError}<p class="alert">{loginError}</p>{/if}<button class="primary wide" disabled={busy}>{busy?'Signing in…':'Continue'}</button></form><p class="privacy">Your token is exchanged for a secure session and is never stored by this page.</p></section></main>
+  <main class="auth-shell">
+    <section class="auth-story" aria-label="About Miniface">
+      <div class="brand-lockup"><BrandMark size={44} /><span>miniface</span></div>
+      <div class="auth-message">
+        <span class="kicker inverse">Local model registry</span>
+        <h1>Keep your models<br />close at hand.</h1>
+        <p>A quiet, private home for model versions, adapters, and artifacts—built to stay on your machine.</p>
+      </div>
+      <div class="auth-points">
+        <span><ShieldCheck size={17} /> Private by default</span>
+        <span><Database size={17} /> Deduplicated storage</span>
+        <span><GitCommitHorizontal size={17} /> Immutable revisions</span>
+      </div>
+    </section>
+    <section class="login-wrap">
+      <div class="login-card">
+        <div class="login-mark"><BrandMark size={42} /></div>
+        <span class="kicker">Welcome back</span>
+        <h2>Open Miniface</h2>
+        <p class="subtle">Use the administrator token created when this server started.</p>
+        <form onsubmit={(event) => { event.preventDefault(); login(); }}>
+          <label for="token">Administrator token</label>
+          <div class="password-field">
+            <KeyRound size={17} />
+            <input
+              id="token"
+              type={showLoginToken ? 'text' : 'password'}
+              bind:value={token}
+              required
+              autocomplete="current-password"
+              placeholder="mf_••••••••••••"
+            />
+            <button
+              type="button"
+              class="field-button"
+              aria-label={showLoginToken ? 'Hide token' : 'Show token'}
+              onclick={() => (showLoginToken = !showLoginToken)}
+            >
+              {#if showLoginToken}<EyeOff size={17} />{:else}<Eye size={17} />{/if}
+            </button>
+          </div>
+          {#if loginError}<p class="inline-alert danger"><CircleX size={16} />{loginError}</p>{/if}
+          <button class="button primary wide" disabled={busy}>
+            {#if busy}<LoaderCircle class="spin" size={16} /> Signing in…{:else}Continue <ArrowRight size={16} />{/if}
+          </button>
+        </form>
+        <p class="privacy-note"><ShieldCheck size={14} /> Exchanged for a secure session. Never stored in your browser.</p>
+      </div>
+    </section>
+  </main>
 {:else}
-  <div class="shell">
-    <aside><button class="logo" aria-label="Miniface home" onclick={()=>go('/models')}><span>M</span> Miniface</button><nav aria-label="Main navigation">{#each nav as item}<button class:active={section===item[0].slice(1)} onclick={()=>go(item[0])}><i>{item[2]}</i>{item[1]}</button>{/each}</nav><div class="account"><div class="avatar">{session.username?.slice(0,1).toUpperCase()||'A'}</div><div><strong>{session.username||'Administrator'}</strong><small>Local profile</small></div><button class="logout" title="Sign out" aria-label="Sign out" onclick={logout}>↗</button></div></aside>
-    <main class="content">
-      {#if error}<div class="alert page-alert">{error}<button onclick={()=>loadPath(path)}>Retry</button></div>{/if}
-      {#if (!parts.length)||(section==='models'&&parts.length===1)}
-        <header><div><p class="eyebrow">REGISTRY</p><h1>Models</h1><p class="muted">Managed, immutable model repositories on this server.</p></div><button class="primary" onclick={()=>go('/imports')}>＋ Import model</button></header>
-        <div class="toolbar"><label class="search"><span>⌕</span><input aria-label="Search models" bind:value={search} placeholder="Search repositories, types, architectures…" /></label><span>{filtered.length} {filtered.length===1?'repository':'repositories'}</span></div>
-        {#if !models}<div class="state"><div class="spinner"></div><h2>Loading registry</h2></div>{:else if !filtered.length}<div class="state"><div class="state-icon">◇</div><h2>{search?'No matching models':'Your registry is empty'}</h2><p>{search?'Try another search term.':'Import a local directory or a Hugging Face model to create your first repository.'}</p>{#if !search}<button class="primary" onclick={()=>go('/imports')}>Import a model</button>{/if}</div>{:else}<div class="model-grid">{#each filtered as model}<button class="model-card" onclick={()=>go(`/models/${model.owner}/${model.name}`)}><div class="model-head"><div class="model-icon">◇</div><div><h2>{model.owner}/<strong>{model.name}</strong></h2><span class="muted">Updated {formatDate(model.updated_at)}</span></div><span class="arrow">→</span></div><div class="badges"><span>{model.kind||'unknown'}</span>{#if model.quantization}<span>{model.quantization}</span>{/if}<span class:good={model.validation_status==='valid'} class:warn={model.validation_status!=='valid'}>● {model.validation_status}</span></div><dl><div><dt>Architecture</dt><dd>{model.architecture||'Not detected'}</dd></div><div><dt>Size</dt><dd>{formatBytes(model.logical_bytes)}</dd></div><div><dt>Files</dt><dd>{model.file_count}</dd></div><div><dt>Revision</dt><dd><code>{shortSha(model.sha)}</code></dd></div></dl>{#if model.base_model}<p class="base">↳ Base: {model.base_model} {shortSha(model.base_revision)}</p>{/if}</button>{/each}</div>{/if}
-      {:else if section==='models'&&parts.length>=3}
-        {#if !detail}<div class="state"><div class="spinner"></div><h2>Loading repository</h2></div>{:else}<button class="back" onclick={()=>go('/models')}>← All models</button><header class="repo-header"><div><div class="badges"><span>{detail.model.kind}</span><span class:good={detail.model.validation_status==='valid'}>● {detail.model.validation_status}</span></div><h1>{detail.model.owner}/<strong>{detail.model.name}</strong></h1><p class="muted">{detail.model.architecture} · {formatBytes(detail.model.logical_bytes)} · {detail.model.file_count} files</p></div><code class="commit">◆ {shortSha(detail.model.sha)}</code></header><div class="tabs" role="tablist">{#each detailTabs as [label,slug]}<button class:active={tab===label} onclick={()=>go(`/models/${parts[1]}/${parts[2]}${slug==='overview'?'':`/${slug}`}`)}>{label}</button>{/each}</div>
-          {#if tab==='overview'}<div class="two-col"><section class="panel"><h2>Repository overview</h2>{#if detail.card}<div class="card-text">{detail.card}</div>{:else}<div class="empty-small">No model card yet.</div>{/if}</section><section class="panel"><h2>Model metadata</h2><dl class="meta"><div><dt>Current revision</dt><dd><code>{detail.model.sha}</code></dd></div><div><dt>Architecture</dt><dd>{detail.model.architecture||'Unknown'}</dd></div><div><dt>Quantization</dt><dd>{detail.model.quantization||'None detected'}</dd></div><div><dt>Last updated</dt><dd>{formatDate(detail.model.updated_at)}</dd></div>{#if detail.model.base_model}<div><dt>Base model</dt><dd>{detail.model.base_model}</dd></div>{/if}{#if detail.model.source_repository}<div><dt>Imported from</dt><dd>{detail.model.source_repository}@<code>{shortSha(detail.model.source_revision)}</code></dd></div>{/if}</dl></section></div>
-          {:else if tab==='files'}<section class="panel flush"><div class="panel-title"><h2>Files</h2><span>{detail.files.length} entries · {formatBytes(detail.files.reduce((n,f)=>n+f.size,0))}</span></div><div class="table"><div class="tr th"><span>Path</span><span>Storage</span><span>Size</span></div>{#each detail.files as file}<div class="tr"><span class="file">▧ {file.path}</span><span><span class="badge">{file.xet_hash?'Xet':file.kind}</span></span><span>{formatBytes(file.size)}</span></div>{/each}</div></section>
-          {:else if tab==='revisions'}<section class="panel"><h2>Revision history</h2><div class="timeline">{#each detail.revisions as rev}<article><i></i><div><h3>{rev.message||'Untitled revision'}</h3><p>{rev.author} committed {formatDate(rev.created_at)}</p><code>{rev.oid}</code> <span>· {rev.file_count} files</span></div></article>{/each}</div></section>
-          {:else if tab==='usage'}<section class="usage"><div class="callout">Set <code>HF_ENDPOINT</code> before importing Hugging Face libraries. Pin revision <code>{shortSha(detail.model.sha)}</code> for reproducible loads.</div>{#each [['Endpoint','env'],['HF CLI','hf'],['Transformers','transformers'],['Unsloth','unsloth']] as snippet}<div class="code-card"><h2>{snippet[0]}</h2><pre><code>{usage(snippet[1])}</code></pre></div>{/each}</section>
-          {:else}<section class="panel editor"><h2>Edit model card</h2><p class="muted">Published through Miniface directly; content is not sent to a public validator.</p><label for="card">Markdown content</label><textarea id="card" bind:value={card} rows="18"></textarea><label for="card-message">Revision message</label><input id="card-message" bind:value={cardMessage}/>{#if feedback}<p class="feedback">{feedback}</p>{/if}<button class="primary" disabled={busy} onclick={saveCard}>{busy?'Saving…':'Save model card'}</button></section>{/if}
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <button class="sidebar-brand" aria-label="Miniface models" onclick={() => go('/models')}>
+        <BrandMark size={36} />
+        <span>miniface</span>
+        <small>local</small>
+      </button>
+      <nav aria-label="Main navigation">
+        {#each nav as item}
+          {@const NavIcon = item.icon}
+          <button class:active={section === item.path.slice(1)} aria-current={section === item.path.slice(1) ? 'page' : undefined} onclick={() => go(item.path)}>
+            <NavIcon size={18} strokeWidth={1.9} />
+            <span>{item.label}</span>
+          </button>
+        {/each}
+      </nav>
+      <div class="sidebar-foot">
+        <div class="server-state"><i></i><span>Local server</span><small>Connected</small></div>
+        <div class="account-row">
+          <div class="avatar">{session.username?.slice(0, 1).toUpperCase() || 'A'}</div>
+          <div><strong>{session.username || 'Administrator'}</strong><small>Administrator</small></div>
+          <button class="icon-button dark" title="Sign out" aria-label="Sign out" onclick={logout}><LogOut size={17} /></button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="mobile-bar">
+      <button class="mobile-brand" aria-label="Miniface models" onclick={() => go('/models')}><BrandMark size={30} /><span>miniface</span></button>
+      <button class="icon-button" aria-label="Import a model" onclick={() => go('/imports')}><Plus size={18} /></button>
+    </div>
+
+    <main id="main-content" class="content">
+      {#if error}
+        <div class="page-alert" role="alert">
+          <CircleAlert size={19} />
+          <div><strong>Something went wrong</strong><span>{error}</span></div>
+          <button class="button secondary small" onclick={() => loadPath(path)}>Retry</button>
+        </div>
+      {/if}
+
+      {#if !parts.length || (section === 'models' && parts.length === 1)}
+        <header class="page-header">
+          <div>
+            <span class="kicker">Model library</span>
+            <h1>Your models</h1>
+            <p>Browse every model, adapter, and immutable revision stored on this server.</p>
+          </div>
+          <button class="button primary" onclick={() => go('/imports')}><Plus size={17} /> Import model</button>
+        </header>
+
+        <section class="library-toolbar" aria-label="Model filters">
+          <label class="search-field">
+            <Search size={18} />
+            <input aria-label="Search models" bind:value={search} placeholder="Search your library" />
+            {#if search}<button type="button" aria-label="Clear search" onclick={() => (search = '')}><X size={15} /></button>{/if}
+          </label>
+          <div class="toolbar-end">
+            <span class="result-count">{filtered.length} {filtered.length === 1 ? 'model' : 'models'}</span>
+            <label class="select-wrap" aria-label="Sort models">
+              <select bind:value={modelSort} onchange={saveModelSort}>
+                <option value="updated">Recently updated</option>
+                <option value="name">Name</option>
+                <option value="size">Largest first</option>
+              </select>
+            </label>
+            <div class="view-switch" aria-label="Model view">
+              <button class:active={modelView === 'grid'} aria-label="Grid view" aria-pressed={modelView === 'grid'} onclick={() => setModelView('grid')}><LayoutGrid size={16} /></button>
+              <button class:active={modelView === 'list'} aria-label="List view" aria-pressed={modelView === 'list'} onclick={() => setModelView('list')}><ListIcon size={17} /></button>
+            </div>
+          </div>
+        </section>
+
+        {#if !models}
+          <div class="empty-state compact"><LoaderCircle class="spin" size={24} /><h2>Loading your library</h2></div>
+        {:else if !filtered.length}
+          <div class="empty-state">
+            <div class="empty-illustration"><SquareStack size={29} /></div>
+            <h2>{search ? 'No models found' : 'A fresh place for your models'}</h2>
+            <p>{search ? 'Try a model name, owner, type, or architecture.' : 'Import a folder from this machine or mirror a repository from Hugging Face.'}</p>
+            {#if search}
+              <button class="button secondary" onclick={() => (search = '')}>Clear search</button>
+            {:else}
+              <button class="button primary" onclick={() => go('/imports')}><Plus size={16} /> Import your first model</button>
+            {/if}
+          </div>
+        {:else if modelView === 'grid'}
+          <div class="model-grid">
+            {#each filtered as model}
+              <button class="model-card" onclick={() => go(`/models/${model.owner}/${model.name}`)}>
+                <div class="model-card-top">
+                  <div class="model-glyph"><FileBox size={20} /><i></i></div>
+                  <span class={`status-dot ${model.validation_status === 'valid' ? 'success' : 'warning'}`} title={model.validation_status}></span>
+                </div>
+                <div class="model-title">
+                  <span>{model.owner}</span>
+                  <h2>{model.name}</h2>
+                </div>
+                <p class="architecture">{model.architecture || 'Architecture not detected'}</p>
+                <div class="badges">
+                  <span class="badge violet">{model.kind || 'unknown'}</span>
+                  {#if model.quantization}<span class="badge">{model.quantization}</span>{/if}
+                  <span class={`badge status-${model.validation_status === 'valid' ? 'success' : 'warning'}`}>{model.validation_status}</span>
+                </div>
+                {#if model.base_model}<p class="base-model"><GitCommitHorizontal size={14} /> Based on {model.base_model}</p>{/if}
+                <dl class="model-facts">
+                  <div><dt>Size</dt><dd>{formatBytes(model.logical_bytes)}</dd></div>
+                  <div><dt>Files</dt><dd>{model.file_count}</dd></div>
+                  <div><dt>Revision</dt><dd><code>{shortSha(model.sha)}</code></dd></div>
+                </dl>
+                <div class="model-card-foot"><span>Updated {formatRelativeDate(model.updated_at)}</span><ArrowRight size={16} /></div>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <section class="model-list surface">
+            <div class="model-list-head" aria-hidden="true"><span>Model</span><span>Type</span><span>Size</span><span>Updated</span><span></span></div>
+            {#each filtered as model}
+              <button class="model-row" onclick={() => go(`/models/${model.owner}/${model.name}`)}>
+                <span class="model-row-name"><i><FileBox size={18} /></i><span><strong>{model.owner}/{model.name}</strong><small>{model.architecture || 'Architecture not detected'} · <code>{shortSha(model.sha)}</code></small></span></span>
+                <span><span class="badge violet">{model.kind || 'unknown'}</span></span>
+                <span class="row-value">{formatBytes(model.logical_bytes)}</span>
+                <span class="row-value">{formatRelativeDate(model.updated_at)}</span>
+                <span class="row-arrow"><ArrowRight size={16} /></span>
+              </button>
+            {/each}
+          </section>
         {/if}
-      {:else if section==='imports'}
-        <header><div><p class="eyebrow">INGEST</p><h1>Import a model</h1><p class="muted">Copy a local directory or mirror an immutable snapshot from Hugging Face.</p></div></header><section class="panel form-panel"><div class="source-switch" role="tablist" aria-label="Import source"><button type="button" role="tab" aria-selected={importSource==='local'} class:active={importSource==='local'} onclick={()=>chooseImportSource('local')}>Local directory</button><button type="button" role="tab" aria-selected={importSource==='huggingface'} class:active={importSource==='huggingface'} onclick={()=>chooseImportSource('huggingface')}>Hugging Face</button></div><form onsubmit={(e)=>{e.preventDefault();startImport();}}>{#if importSource==='local'}<label for="path">Local directory</label><input id="path" bind:value={importPath} required placeholder="/home/me/models/llama-adapter"/><small>The server reads this path locally. Symlinks and unsafe files are validated by the backend.</small>{:else}<label for="hub-repo">Hugging Face repository</label><div class="hub-picker"><input id="hub-repo" value={hubRepo} oninput={(event)=>{hubRepo=event.currentTarget.value;scheduleHubSearch();}} required pattern="[^/]+/[^/]+" autocomplete="off" placeholder="google/gemma-3-1b-it" aria-describedby="hub-help"/>{#if hubSearching}<span class="field-status">Searching…</span>{/if}{#if hubResults.length}<div class="hub-results">{#each hubResults as model}<button type="button" onclick={()=>selectHubModel(model)}><span><strong>{model.id}</strong><small>{model.pipeline_tag||'model'} · {model.downloads.toLocaleString()} downloads</small></span><span class="hub-result-meta"><span>{model.size_bytes===undefined?'Size unavailable':`≈ ${formatBytes(model.size_bytes)}`}</span><small class:restricted={model.gated}>{model.gated?'● HF sign-in required':'○ Public · no sign-in'}</small></span></button>{/each}</div>{/if}</div><small id="hub-help">Search public models or enter an exact public, private, or gated repository ID. Sizes are approximate snapshot totals at the default revision.</small>{#if hubSelected?.gated}<p class="access-note restricted"><strong>Hugging Face sign-in required.</strong> Accept this model's terms, then provide an <code>hf_…</code> token with read access below.</p>{:else if hubSelected}<p class="access-note public"><strong>Public model.</strong> No Hugging Face token is required.</p>{/if}{#if hubSearchError}<p class="alert">{hubSearchError}</p>{/if}<label for="hub-revision">Source revision</label><input id="hub-revision" bind:value={hubRevision} required placeholder="main"/><small>The branch or tag is resolved once and every file is imported from that immutable commit.</small><label for="hub-token">Hugging Face access token {#if hubSelected?.gated}<span class="required">required</span>{:else}<span class="optional">optional for public models</span>{/if}</label><input id="hub-token" type="password" bind:value={hubToken} required={hubSelected?.gated===true} autocomplete="off" placeholder="hf_••••••••••••"/><small>Required for private or gated models. Miniface keeps it only in the active in-memory job; it is never logged or saved. Accept gated model terms on huggingface.co first.</small>{/if}<label for="repo">Target Miniface repository</label><input id="repo" bind:value={repoId} required pattern="[^/]+/[^/]+" placeholder="team/model-name"/><label for="message">Revision message</label><input id="message" bind:value={message} required/>{#if feedback}<p class="feedback">{feedback}</p>{/if}<button class="primary" disabled={busy}>{busy?'Queueing…':importSource==='local'?'Import local directory':'Import from Hugging Face'}</button></form></section>
-      {:else if section==='jobs'}
-        <header><div><p class="eyebrow">ACTIVITY</p><h1>Jobs</h1><p class="muted">Background imports, indexing, and maintenance.</p></div><button onclick={()=>loadPath(path)}>↻ Refresh</button></header>{#if jobActionError}<p class="alert">{jobActionError}</p>{/if}{#if !jobs}<div class="state"><div class="spinner"></div></div>{:else if !jobs.length}<div class="state"><div class="state-icon">✓</div><h2>No jobs yet</h2><p>Imports and background work will appear here.</p></div>{:else}<div class="job-list">{#each jobs as job}<article class="panel job"><div><span class="badge">{job.type}</span><h2>{job.repo_id||job.id}</h2><p>{job.state} · updated {formatDate(job.updated_at)}</p></div><div class="job-status"><strong class:good={job.state==='completed'}>{Math.round(normalizeProgress(job.progress))}%</strong>{#if job.state==='queued'||job.state==='running'}<button class="danger" disabled={cancelingJob===job.id} onclick={()=>cancelJob(job)}>{cancelingJob===job.id?'Canceling…':'Cancel'}</button>{/if}</div><div class="progress"><i style={`width:${normalizeProgress(job.progress)}%`}></i></div>{#if job.total_bytes}<small>{formatBytes(job.current_bytes||0)} of {formatBytes(job.total_bytes)}</small>{/if}{#if job.error}<p class="alert">{job.error}</p>{/if}</article>{/each}</div>{/if}
-      {:else if section==='storage'}
-        <header><div><p class="eyebrow">INFRASTRUCTURE</p><h1>Storage</h1><p class="muted">Logical inventory and physical Xet utilization.</p></div></header>{#if !storage}<div class="state"><div class="spinner"></div></div>{:else}<div class="stats"><article><span>Logical data</span><strong>{formatBytes(storage.logical_bytes)}</strong><small>Visible repository content</small></article><article><span>Physical data</span><strong>{formatBytes(storage.physical_bytes)}</strong><small>Bytes stored on disk</small></article><article><span>Deduplication</span><strong>{storage.dedup_ratio.toFixed(2)}×</strong><small>{Math.max(0,100-(100/storage.dedup_ratio)).toFixed(0)}% physical savings</small></article></div><section class="panel"><div class="panel-title"><h2>Storage profile</h2><span class="badge good">● {storage.profile}</span></div><dl class="storage-list"><div><dt>Repositories</dt><dd>{storage.repositories}</dd></div><div><dt>Ordinary objects</dt><dd>{storage.ordinary_objects.toLocaleString()}</dd></div><div><dt>Xet objects</dt><dd>{storage.xet_objects.toLocaleString()}</dd></div></dl></section>{/if}
-      {:else if section==='settings'}
-        <header><div><p class="eyebrow">CONFIGURATION</p><h1>Settings</h1><p class="muted">Client endpoint and transfer profiles.</p></div></header><section class="panel settings"><h2>Server endpoint</h2><p>Use the administrator token shown on first startup as <code>HF_TOKEN</code>. Miniface never returns that token to the browser after login.</p><pre><code>export HF_ENDPOINT={endpoint()}
-export HF_TOKEN=mf_your_administrator_token</code></pre><h2>Xet-enabled read profile</h2><p>Use Xet for efficient deduplicated downloads and training. Set the endpoint and token before starting Python or the <code>hf</code> CLI.</p><pre><code>HF_ENDPOINT={endpoint()} HF_TOKEN=mf_your_administrator_token hf download owner/model</code></pre><h2>Basic-LFS upload profile</h2><div class="callout warning"><strong>Use a fresh uploader process.</strong> <code>HF_HUB_DISABLE_XET</code> is captured when <code>huggingface_hub</code> is imported and cannot safely be toggled in a running training process.</div><pre><code>export HF_ENDPOINT={endpoint()}
-export HF_TOKEN=mf_your_administrator_token
-export HF_HUB_DISABLE_XET=1
-hf upload owner/model ./output --exclude README.md</code></pre><p>Root model cards should be edited in Miniface to avoid public Hugging Face YAML validation. Downloads in this uploader process use ordinary HTTP fallback.</p></section>
+
+      {:else if section === 'models' && parts.length >= 3}
+        {#if !detail}
+          <div class="empty-state compact"><LoaderCircle class="spin" size={24} /><h2>Opening repository</h2></div>
+        {:else}
+          <button class="text-button breadcrumb" onclick={() => go('/models')}><ArrowLeft size={15} /> Model library</button>
+          <header class="repository-header">
+            <div class="repository-identity">
+              <div class="repository-glyph"><FileBox size={24} /></div>
+              <div>
+                <div class="badges compact-badges">
+                  <span class="badge violet">{detail.model.kind || 'unknown'}</span>
+                  <span class={`badge status-${detail.model.validation_status === 'valid' ? 'success' : 'warning'}`}>{detail.model.validation_status}</span>
+                </div>
+                <h1><span>{detail.model.owner}/</span>{detail.model.name}</h1>
+                <p>{detail.model.architecture || 'Unknown architecture'} · {formatBytes(detail.model.logical_bytes)} · {detail.model.file_count} files</p>
+              </div>
+            </div>
+            <div class="repository-actions">
+              <button class="button secondary" onclick={() => copyText(detail?.model.sha || '', 'revision')}>
+                {#if copied === 'revision'}<Check size={15} /> Copied{:else}<Copy size={15} /> <code>{shortSha(detail.model.sha)}</code>{/if}
+              </button>
+              <button class="button primary" onclick={() => go(`/models/${parts[1]}/${parts[2]}/usage`, false)}><Code size={16} /> Use model</button>
+            </div>
+          </header>
+
+          <div class="detail-tabs" role="tablist" aria-label="Repository sections">
+            {#each detailTabs as item}
+              <button
+                role="tab"
+                aria-selected={tab === item.slug}
+                class:active={tab === item.slug}
+                onclick={() => go(`/models/${parts[1]}/${parts[2]}${item.slug === 'overview' ? '' : `/${item.slug}`}`, false)}
+              >{item.label}</button>
+            {/each}
+          </div>
+
+          {#if tab === 'overview'}
+            {#if detail.model.kind === 'adapter' && detail.model.base_model && !detail.model.base_revision}
+              <div class="callout warning"><TriangleAlert size={18} /><div><strong>Base revision is not pinned</strong><span>Pin an immutable base revision before using this adapter for reproducible loads.</span></div></div>
+            {/if}
+            <div class="overview-grid">
+              <section class="surface model-card-content">
+                <div class="section-heading"><div><span class="kicker">README.md</span><h2>Model card</h2></div><button class="button ghost small" onclick={() => go(`/models/${parts[1]}/${parts[2]}/model-card`, false)}>Edit <ArrowRight size={14} /></button></div>
+                {#if detail.card}
+                  <div class="card-text">
+                    {#each detail.card.split('\n') as line}
+                      {#if line.startsWith('### ')}<h4>{line.slice(4)}</h4>
+                      {:else if line.startsWith('## ')}<h3>{line.slice(3)}</h3>
+                      {:else if line.startsWith('# ')}<h2>{line.slice(2)}</h2>
+                      {:else if line.startsWith('- ')}<p class="card-list-item">{line.slice(2)}</p>
+                      {:else if line.trim()}<p>{line}</p>
+                      {:else}<span class="card-space"></span>{/if}
+                    {/each}
+                  </div>
+                {:else}<div class="inline-empty"><FileText size={22} /><div><strong>No model card yet</strong><span>Add notes, limitations, and usage guidance for this model.</span></div></div>{/if}
+              </section>
+              <aside class="overview-side">
+                <section class="surface metadata-card">
+                  <div class="section-heading"><div><span class="kicker">At a glance</span><h2>Model details</h2></div></div>
+                  <dl class="metadata-list">
+                    <div><dt>Architecture</dt><dd>{detail.model.architecture || 'Unknown'}</dd></div>
+                    <div><dt>Quantization</dt><dd>{detail.model.quantization || 'None detected'}</dd></div>
+                    <div><dt>Last updated</dt><dd>{formatDate(detail.model.updated_at)}</dd></div>
+                    <div><dt>Current revision</dt><dd><code>{shortSha(detail.model.sha)}</code></dd></div>
+                    {#if detail.model.base_model}<div><dt>Base model</dt><dd class="metadata-reference">{detail.model.base_model}{#if detail.model.base_revision} <code>@{shortSha(detail.model.base_revision)}</code>{/if}</dd></div>{/if}
+                    {#if detail.model.source_repository}<div><dt>Imported from</dt><dd class="metadata-reference">{detail.model.source_repository} <code>@{shortSha(detail.model.source_revision)}</code></dd></div>{/if}
+                  </dl>
+                </section>
+                <button class="usage-shortcut" onclick={() => go(`/models/${parts[1]}/${parts[2]}/usage`, false)}>
+                  <div><SquareTerminal size={20} /><span><strong>Ready to use</strong><small>Copy a pinned CLI or Python snippet</small></span></div><ArrowRight size={17} />
+                </button>
+              </aside>
+            </div>
+          {:else if tab === 'files'}
+            <section class="surface data-panel">
+              <div class="section-heading panel-padding"><div><span class="kicker">Repository contents</span><h2>Files</h2></div><span class="section-meta">{detail.files.length} entries · {formatBytes(detail.files.reduce((total, file) => total + file.size, 0))}</span></div>
+              <div class="file-table">
+                <div class="file-row file-head" aria-hidden="true"><span>Path</span><span>Storage</span><span>Size</span></div>
+                {#each detail.files as file}
+                  <div class="file-row"><span class="file-name"><FileText size={16} />{file.path}</span><span><span class="badge">{file.xet_hash ? 'Xet' : file.kind}</span></span><span>{formatBytes(file.size)}</span></div>
+                {/each}
+              </div>
+            </section>
+          {:else if tab === 'revisions'}
+            <section class="surface revision-panel">
+              <div class="section-heading"><div><span class="kicker">Immutable history</span><h2>Revisions</h2></div><span class="section-meta">{detail.revisions.length} total</span></div>
+              <div class="timeline">
+                {#each detail.revisions as revision, index}
+                  <article>
+                    <div class="timeline-marker"><GitCommitHorizontal size={16} /></div>
+                    <div class="revision-body">
+                      <div><h3>{revision.message || 'Untitled revision'}</h3>{#if index === 0}<span class="badge violet">current</span>{/if}</div>
+                      <p>{revision.author} · {formatDate(revision.created_at)} · {revision.file_count} files</p>
+                      <button class="commit-copy" onclick={() => copyText(revision.oid, `revision-${revision.oid}`)}><code>{revision.oid}</code>{#if copied === `revision-${revision.oid}`}<Check size={14} />{:else}<Copy size={14} />{/if}</button>
+                    </div>
+                  </article>
+                {/each}
+              </div>
+            </section>
+          {:else if tab === 'usage'}
+            <div class="callout info"><Info size={18} /><div><strong>Reproducible by default</strong><span>Set <code>HF_ENDPOINT</code> before importing Hugging Face libraries. Every example pins revision <code>{shortSha(detail.model.sha)}</code>.</span></div></div>
+            <section class="usage-grid">
+              {#each [
+                { title: 'Environment', description: 'Use once per shell', key: 'env' },
+                { title: 'HF CLI', description: 'Download the pinned snapshot', key: 'hf' },
+                { title: 'Transformers', description: 'Load with the Python client', key: 'transformers' },
+                { title: 'Unsloth', description: detail.model.kind === 'adapter' ? 'Load base and adapter together' : 'Load for local training', key: 'unsloth' }
+              ] as snippet}
+                <article class:wide-code={snippet.key === 'transformers' || snippet.key === 'unsloth'} class="code-card">
+                  <div><span><strong>{snippet.title}</strong><small>{snippet.description}</small></span><button class="copy-button" aria-label={`Copy ${snippet.title} example`} onclick={() => copyText(usage(snippet.key), `usage-${snippet.key}`)}>{#if copied === `usage-${snippet.key}`}<Check size={14} /> Copied{:else}<Copy size={14} /> Copy{/if}</button></div>
+                  <pre><code>{usage(snippet.key)}</code></pre>
+                </article>
+              {/each}
+            </section>
+          {:else}
+            <section class="editor-layout">
+              <div class="surface editor-panel">
+                <div class="section-heading"><div><span class="kicker">README.md</span><h2>Edit model card</h2></div><span class="badge">Markdown</span></div>
+                <p class="section-description">Document intended use, training details, and limitations. Content stays on this Miniface server.</p>
+                <label for="card">Markdown content</label>
+                <textarea id="card" bind:value={card} rows="20" placeholder="# Model name&#10;&#10;Describe this model…"></textarea>
+                <label for="card-message">Revision message</label>
+                <input id="card-message" bind:value={cardMessage} />
+                {#if cardFeedback}<p class={`inline-alert ${cardFeedbackTone}`}><CircleCheck size={16} />{cardFeedback}</p>{/if}
+                <div class="form-actions"><span>Saving creates a new immutable revision.</span><button class="button primary" disabled={busy} onclick={saveCard}>{#if busy}<LoaderCircle class="spin" size={16} /> Saving…{:else}Save model card{/if}</button></div>
+              </div>
+            </section>
+          {/if}
+        {/if}
+
+      {:else if section === 'imports'}
+        <header class="page-header narrow-header">
+          <div><span class="kicker">Add to your library</span><h1>Import a model</h1><p>Bring in a folder from this machine or mirror a pinned Hugging Face snapshot.</p></div>
+        </header>
+        <div class="import-layout">
+          <section class="import-main">
+            <div class="source-options" role="radiogroup" aria-label="Import source">
+              <button role="radio" aria-checked={importSource === 'local'} class:active={importSource === 'local'} onclick={() => chooseImportSource('local')}>
+                <span class="source-icon"><FolderInput size={21} /></span>
+                <span><strong>Local folder</strong><small>Copy a directory from this server</small></span>
+                <i></i>
+              </button>
+              <button role="radio" aria-checked={importSource === 'huggingface'} class:active={importSource === 'huggingface'} onclick={() => chooseImportSource('huggingface')}>
+                <span class="source-icon"><CloudDownload size={21} /></span>
+                <span><strong>Hugging Face</strong><small>Mirror an immutable snapshot</small></span>
+                <i></i>
+              </button>
+            </div>
+
+            <section class="surface import-form-card">
+              <div class="section-heading"><div><span class="step-label">1</span><div><span class="kicker">Source</span><h2>{importSource === 'local' ? 'Choose a local folder' : 'Choose a Hugging Face model'}</h2></div></div></div>
+              <form onsubmit={(event) => { event.preventDefault(); startImport(); }}>
+                {#if importSource === 'local'}
+                  <div class="field-group">
+                    <label for="path">Directory path</label>
+                    <input id="path" bind:value={importPath} required placeholder="/home/me/models/llama-adapter" />
+                    <small>The path is read by the Miniface server. Symlinks and unsafe files are rejected.</small>
+                  </div>
+                {:else}
+                  <div class="field-group">
+                    <label for="hub-repo">Repository</label>
+                    <div class="hub-picker">
+                      <div class="input-with-icon"><Search size={17} /><input id="hub-repo" value={hubRepo} oninput={(event) => { hubRepo = event.currentTarget.value; scheduleHubSearch(); }} required pattern="[^/]+/[^/]+" autocomplete="off" placeholder="google/gemma-3-1b-it" aria-describedby="hub-help" />{#if hubSearching}<LoaderCircle class="spin field-loader" size={16} />{/if}</div>
+                      {#if hubResults.length}
+                        <div class="hub-results">
+                          {#each hubResults as model}
+                            <button type="button" onclick={() => selectHubModel(model)}>
+                              <span><strong>{model.id}</strong><small>{model.pipeline_tag || 'Model'} · {compactNumber(model.downloads)} downloads</small></span>
+                              <span><strong>{model.size_bytes === undefined ? 'Size unavailable' : `≈ ${formatBytes(model.size_bytes)}`}</strong><small class:restricted={model.gated}>{model.gated ? 'Token required' : 'Public'}</small></span>
+                            </button>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                    <small id="hub-help">Search public models or enter an exact public, private, or gated repository ID.</small>
+                  </div>
+                  {#if hubSelected?.gated}
+                    <div class="access-note warning"><ShieldCheck size={17} /><div><strong>Hugging Face access required</strong><span>Accept this model’s terms, then provide a read token below.</span></div></div>
+                  {:else if hubSelected}
+                    <div class="access-note success"><CircleCheck size={17} /><div><strong>Public repository</strong><span>No Hugging Face token is required.</span></div></div>
+                  {/if}
+                  {#if hubSearchError}<p class="inline-alert danger"><CircleX size={16} />{hubSearchError}</p>{/if}
+                  <div class="field-row">
+                    <div class="field-group">
+                      <label for="hub-revision">Source revision</label>
+                      <input id="hub-revision" bind:value={hubRevision} required placeholder="main" />
+                      <small>Branch, tag, or commit.</small>
+                    </div>
+                    <div class="field-group">
+                      <label for="hub-token">Access token <span class={hubSelected?.gated ? 'required-label' : 'optional-label'}>{hubSelected?.gated ? 'required' : 'optional'}</span></label>
+                      <div class="password-field light"><input id="hub-token" type={showHubToken ? 'text' : 'password'} bind:value={hubToken} required={hubSelected?.gated === true} autocomplete="off" placeholder="hf_••••••••••••" /><button type="button" class="field-button" aria-label={showHubToken ? 'Hide token' : 'Show token'} onclick={() => (showHubToken = !showHubToken)}>{#if showHubToken}<EyeOff size={17} />{:else}<Eye size={17} />{/if}</button></div>
+                      <small>Held only for the active job.</small>
+                    </div>
+                  </div>
+                {/if}
+
+                <div class="form-divider"></div>
+                <div class="section-heading inline-section"><div><span class="step-label">2</span><div><span class="kicker">Destination</span><h2>Name the repository</h2></div></div></div>
+                <div class="field-group">
+                  <label for="repo">Miniface repository</label>
+                  <input id="repo" bind:value={repoId} required pattern="[^/]+/[^/]+" placeholder="team/model-name" />
+                  <small>Use an owner/name pair. This becomes the model’s permanent local ID.</small>
+                </div>
+                <div class="field-group">
+                  <label for="message">Revision message</label>
+                  <input id="message" bind:value={message} required />
+                </div>
+
+                {#if importFeedback}
+                  <div class={`import-feedback ${importFeedbackTone}`} role="status">
+                    {#if importFeedbackTone === 'success'}<CircleCheck size={19} />{:else}<CircleX size={19} />{/if}
+                    <div><strong>{importFeedbackTone === 'success' ? 'Import queued' : 'Couldn’t start import'}</strong><span>{importFeedback}</span></div>
+                    {#if queuedJob}<button type="button" class="button secondary small" onclick={() => go('/jobs')}>View activity <ArrowRight size={14} /></button>{/if}
+                  </div>
+                {/if}
+
+                <div class="form-actions import-actions">
+                  <span>{importSource === 'local' ? 'Files are copied into managed storage.' : 'The source revision is resolved once before transfer.'}</span>
+                  <button class="button primary" disabled={busy}>{#if busy}<LoaderCircle class="spin" size={16} /> Queueing…{:else}{importSource === 'local' ? 'Import local folder' : 'Import from Hugging Face'} <ArrowRight size={16} />{/if}</button>
+                </div>
+              </form>
+            </section>
+          </section>
+
+          <aside class="import-aside">
+            <section class="surface flow-card">
+              <span class="kicker">What happens next</span>
+              <ol>
+                <li><span>1</span><div><strong>{importSource === 'local' ? 'Validate files' : 'Resolve snapshot'}</strong><small>{importSource === 'local' ? 'Unsafe files and symlinks are rejected.' : 'The requested revision is pinned to one commit.'}</small></div></li>
+                <li><span>2</span><div><strong>Store efficiently</strong><small>Existing Xet content is reused whenever possible.</small></div></li>
+                <li><span>3</span><div><strong>Publish atomically</strong><small>The model appears only after every file is durable.</small></div></li>
+              </ol>
+            </section>
+            <div class="privacy-card"><ShieldCheck size={18} /><div><strong>Private by design</strong><span>Imports stay between this browser, your Miniface server, and the source you choose.</span></div></div>
+          </aside>
+        </div>
+
+      {:else if section === 'jobs'}
+        <header class="page-header">
+          <div><span class="kicker">Background work</span><h1>Activity</h1><p>Imports, indexing, and maintenance in one compact history.</p></div>
+          <button class="button secondary" disabled={refreshingJobs} onclick={() => refreshJobs()}><RefreshCw class={refreshingJobs ? 'spin' : ''} size={16} /> Refresh</button>
+        </header>
+        {#if jobActionError}<p class="inline-alert danger page-inline-alert"><CircleX size={16} />{jobActionError}</p>{/if}
+        {#if !jobs}
+          <div class="empty-state compact"><LoaderCircle class="spin" size={24} /><h2>Loading activity</h2></div>
+        {:else if !jobs.length}
+          <div class="empty-state"><div class="empty-illustration"><Activity size={28} /></div><h2>Nothing running yet</h2><p>Imports and other background work will appear here.</p><button class="button primary" onclick={() => go('/imports')}><Plus size={16} /> Start an import</button></div>
+        {:else}
+          <div class="activity-summary">
+            <div><span class="activity-icon active"><LoaderCircle size={18} /></span><span><strong>{activeJobCount}</strong><small>Active</small></span></div>
+            <div><span class="activity-icon done"><CircleCheck size={18} /></span><span><strong>{completedJobCount}</strong><small>Completed</small></span></div>
+            <p>Job history is kept as a lightweight audit log; finished work stays collapsed to a single row.</p>
+          </div>
+          <div class="activity-toolbar">
+            <div class="filter-tabs" aria-label="Filter activity">
+              <button class:active={jobFilter === 'all'} onclick={() => (jobFilter = 'all')}>All <span>{jobs.length}</span></button>
+              <button class:active={jobFilter === 'active'} onclick={() => (jobFilter = 'active')}>Active <span>{activeJobCount}</span></button>
+              <button class:active={jobFilter === 'completed'} onclick={() => (jobFilter = 'completed')}>History <span>{jobs.length - activeJobCount}</span></button>
+            </div>
+            <span class="polling-note">{#if activeJobCount}<i></i> Updates automatically{:else}All caught up{/if}</span>
+          </div>
+          {#if !visibleJobs.length}
+            <div class="empty-state compact"><CircleCheck size={24} /><h2>No jobs in this view</h2></div>
+          {:else}
+            <section class="jobs-list surface">
+              {#each visibleJobs as job}
+                <article class:expanded={expandedJob === job.id} class="job-item">
+                  <div class="job-main-row">
+                    <span class={`job-state status-${stateTone(job.state)}`}>
+                      {#if job.state === 'completed'}<CircleCheck size={17} />{:else if job.state === 'failed'}<CircleX size={17} />{:else if job.state === 'canceled'}<X size={17} />{:else if job.state === 'queued'}<Clock3 size={17} />{:else}<LoaderCircle class="spin" size={17} />{/if}
+                    </span>
+                    <div class="job-name"><strong>{job.repo_id || job.id}</strong><span><span class="badge">{titleCase(job.type)}</span> {titleCase(job.state)}</span></div>
+                    <div class="job-progress-cell">
+                      <div><span>{isActiveJob(job) ? `${Math.round(normalizeProgress(job.progress))}%` : titleCase(job.state)}</span>{#if job.total_bytes}<small>{formatBytes(job.current_bytes || 0)} / {formatBytes(job.total_bytes)}</small>{/if}</div>
+                      {#if isActiveJob(job)}<div class="progress"><i style={`width:${normalizeProgress(job.progress)}%`}></i></div>{/if}
+                    </div>
+                    <time datetime={job.updated_at}>{formatRelativeDate(job.updated_at)}</time>
+                    <div class="job-actions">
+                      {#if isActiveJob(job)}<button class="button danger small" disabled={cancelingJob === job.id} onclick={() => cancelJob(job)}>{cancelingJob === job.id ? 'Canceling…' : 'Cancel'}</button>{/if}
+                      {#if job.error}<button class="details-button" aria-label={expandedJob === job.id ? 'Hide error details' : 'Show error details'} onclick={() => (expandedJob = expandedJob === job.id ? '' : job.id)}><CircleAlert size={15} /> Details</button>{/if}
+                    </div>
+                  </div>
+                  {#if job.error && expandedJob === job.id}<div class="job-detail"><strong>Error details</strong><code>{job.error}</code><span>Job ID: {job.id}</span></div>{/if}
+                </article>
+              {/each}
+            </section>
+          {/if}
+        {/if}
+
+      {:else if section === 'storage'}
+        <header class="page-header narrow-header">
+          <div><span class="kicker">Local infrastructure</span><h1>Storage</h1><p>Understand what your library contains and how efficiently it fits on disk.</p></div>
+        </header>
+        {#if !storage}
+          <div class="empty-state compact"><LoaderCircle class="spin" size={24} /><h2>Reading storage</h2></div>
+        {:else}
+          <div class="storage-stats">
+            <article class="surface stat-card"><span class="stat-icon violet"><Database size={19} /></span><div><span>Logical library</span><strong>{formatBytes(storage.logical_bytes)}</strong><small>Visible repository content</small></div></article>
+            <article class="surface stat-card"><span class="stat-icon graphite"><HardDrive size={19} /></span><div><span>On disk</span><strong>{formatBytes(storage.physical_bytes)}</strong><small>Physical bytes stored</small></div></article>
+            <article class="surface stat-card"><span class="stat-icon lime"><Gauge size={19} /></span><div><span>Deduplication</span><strong>{storage.dedup_ratio.toFixed(2)}×</strong><small>{dedupSavings(storage.dedup_ratio).toFixed(0)}% physical savings</small></div></article>
+          </div>
+          <div class="storage-grid">
+            <section class="surface efficiency-card">
+              <div class="section-heading"><div><span class="kicker">Xet efficiency</span><h2>Same library, less disk</h2></div><span class={`badge status-${storage.dedup_ratio > 1 ? 'success' : 'muted'}`}>{storage.profile}</span></div>
+              <p>Miniface reuses matching content across files and revisions instead of storing it twice.</p>
+              <div class="storage-bars">
+                <div><span><strong>Logical</strong><small>{formatBytes(storage.logical_bytes)}</small></span><i><b style="width:100%"></b></i></div>
+                <div><span><strong>Physical</strong><small>{formatBytes(storage.physical_bytes)}</small></span><i><b class="physical" style={`width:${Math.max(4, Math.min(100, storage.logical_bytes ? (storage.physical_bytes / storage.logical_bytes) * 100 : 0))}%`}></b></i></div>
+              </div>
+              <div class="savings-note"><span>{dedupSavings(storage.dedup_ratio).toFixed(0)}%</span><p><strong>less disk used</strong><small>Compared with storing all logical bytes independently.</small></p></div>
+            </section>
+            <section class="surface inventory-card">
+              <div class="section-heading"><div><span class="kicker">Inventory</span><h2>Storage profile</h2></div></div>
+              <dl>
+                <div><dt><Layers size={16} />Repositories</dt><dd>{storage.repositories}</dd></div>
+                <div><dt><FileText size={16} />Ordinary objects</dt><dd>{storage.ordinary_objects.toLocaleString()}</dd></div>
+                <div><dt><SquareStack size={16} />Xet objects</dt><dd>{storage.xet_objects.toLocaleString()}</dd></div>
+                <div><dt><Server size={16} />Profile</dt><dd>{titleCase(storage.profile)}</dd></div>
+              </dl>
+            </section>
+          </div>
+        {/if}
+
+      {:else if section === 'settings'}
+        <header class="page-header narrow-header"><div><span class="kicker">Client setup</span><h1>Connect your tools</h1><p>Point Hugging Face clients, Transformers, and training tools at this Miniface server.</p></div></header>
+        <section class="endpoint-hero">
+          <div><span class="endpoint-icon"><Server size={21} /></span><span><small>Server endpoint</small><strong>{endpoint()}</strong></span></div>
+          <button class="button inverse" onclick={() => copyText(endpoint(), 'endpoint')}>{#if copied === 'endpoint'}<Check size={15} /> Copied{:else}<Copy size={15} /> Copy endpoint{/if}</button>
+        </section>
+        <div class="settings-layout">
+          <section class="settings-main">
+            {#each [
+              { key: 'env', eyebrow: 'Start here', title: 'Set your environment', description: 'Run this before starting Python or the hf CLI.', icon: KeyRound },
+              { key: 'download', eyebrow: 'Xet-enabled reads', title: 'Download a model', description: 'Miniface uses Xet for efficient, deduplicated transfers.', icon: CloudDownload },
+              { key: 'upload', eyebrow: 'Basic LFS writes', title: 'Upload training output', description: 'Use a fresh process with native Xet writes disabled.', icon: Upload }
+            ] as setup}
+              {@const SetupIcon = setup.icon}
+              <article class="surface setup-card">
+                <div class="setup-heading"><span><SetupIcon size={19} /></span><div><small>{setup.eyebrow}</small><h2>{setup.title}</h2><p>{setup.description}</p></div></div>
+                {#if setup.key === 'upload'}<div class="mini-warning"><TriangleAlert size={16} /><span><strong>Use a fresh uploader process.</strong> The client reads <code>HF_HUB_DISABLE_XET</code> at import time.</span></div>{/if}
+                <div class="code-block"><button class="copy-button" aria-label={`Copy ${setup.title} commands`} onclick={() => copyText(settingCode(setup.key as 'env' | 'download' | 'upload'), `setting-${setup.key}`)}>{#if copied === `setting-${setup.key}`}<Check size={14} /> Copied{:else}<Copy size={14} /> Copy{/if}</button><pre><code>{settingCode(setup.key as 'env' | 'download' | 'upload')}</code></pre></div>
+              </article>
+            {/each}
+          </section>
+          <aside class="settings-aside">
+            <section class="surface token-note"><ShieldCheck size={20} /><h2>Your token stays private</h2><p>Use the administrator token printed on first startup as <code>HF_TOKEN</code>. Miniface never sends it back to this page after sign-in.</p></section>
+            <section class="surface docs-note"><FileText size={20} /><h2>Model cards</h2><p>Edit root model cards inside Miniface to avoid public Hugging Face YAML validation.</p></section>
+          </aside>
+        </div>
+      {:else}
+        <div class="empty-state"><div class="empty-illustration"><CircleAlert size={28} /></div><h2>Page not found</h2><p>This part of Miniface doesn’t exist.</p><button class="button primary" onclick={() => go('/models')}>Back to models</button></div>
       {/if}
     </main>
   </div>
-{/if}
 
-<style>
-  :global(*){box-sizing:border-box} :global(:root){font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#dce4f2;background:#090d15;font-synthesis:none} :global(body){margin:0;background:radial-gradient(circle at 70% 0,#122137 0,transparent 32%),#090d15;color:#dce4f2} :global(button),:global(input),:global(textarea){font:inherit} :global(button){cursor:pointer} :global(code){font-family:"SFMono-Regular",Consolas,monospace}
-  .shell{min-height:100vh}.shell>aside{position:fixed;inset:0 auto 0 0;width:236px;padding:24px 16px;background:#0b111c;border-right:1px solid #202a39;display:flex;flex-direction:column;z-index:5}.logo{display:flex;align-items:center;gap:11px;border:0;background:none;color:white;font-size:19px;font-weight:750;padding:0 8px 28px}.logo span,.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#65d7c7,#5678e7);color:#071019;font-weight:900}.shell nav{display:grid;gap:5px}.shell nav button{border:0;background:none;color:#8c9aaf;padding:11px 12px;border-radius:9px;text-align:left;display:flex;gap:12px}.shell nav button:hover,.shell nav button.active{color:#eef5ff;background:#172131}.shell nav i{font-style:normal;width:18px;text-align:center}.account{margin-top:auto;border-top:1px solid #202a39;padding:18px 5px 0;display:flex;align-items:center;gap:10px}.avatar{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:#263752;color:#89e1d4}.account div:nth-child(2){display:grid;font-size:12px}.account small{color:#78879d}.logout{margin-left:auto;border:0;color:#7d8ba0;background:none;font-size:18px}.content{margin-left:236px;max-width:1450px;padding:52px clamp(24px,5vw,76px) 80px}header{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:34px}h1{font-size:clamp(29px,4vw,42px);letter-spacing:-.035em;margin:5px 0 7px;color:#f5f8fc}h2{color:#eff4fb}.eyebrow{color:#63d3c3;letter-spacing:.16em;font-size:11px;font-weight:800;margin:0}.muted{color:#8c9aaf;margin:0;line-height:1.6}.primary,button:not(.logo,.model-card,.back,.logout){border:1px solid #34435a;background:#151e2b;color:#dce5f2;border-radius:8px;padding:9px 14px}.primary{background:#59cdbc!important;border-color:#59cdbc!important;color:#07120f!important;font-weight:750}.primary:hover{background:#75dfd0!important}.wide{width:100%;padding:12px!important}.toolbar{border:1px solid #202b3b;background:#0d141f;border-radius:11px;margin-bottom:18px;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;color:#758499;font-size:12px}.search{display:flex;align-items:center;gap:10px;flex:1}.search input{width:100%;background:none;border:0;outline:0;color:#e6edf6;padding:5px}.model-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:15px}.model-card{color:inherit;text-align:left;background:linear-gradient(150deg,#111a27,#0d141e);border:1px solid #202c3d;border-radius:12px;padding:22px;transition:.2s}.model-card:hover{border-color:#4b7d82;transform:translateY(-2px);box-shadow:0 12px 40px #0005}.model-head{display:flex;gap:13px;align-items:center}.model-icon{width:39px;height:39px;border:1px solid #34445a;background:#172334;border-radius:9px;display:grid;place-items:center;color:#63d3c3}.model-head h2{font-size:15px;font-weight:450;margin:0 0 4px}.model-head .muted{font-size:11px}.arrow{margin-left:auto;color:#5d6d83}.badges{display:flex;flex-wrap:wrap;gap:7px;margin:19px 0}.badges span,.badge{background:#1b2636;border:1px solid #29384d;border-radius:99px;padding:4px 8px;color:#9fb0c5;text-transform:capitalize;font-size:10px}.good{color:#66d5a3!important}.warn{color:#f2c66d!important}.model-card dl{display:grid;grid-template-columns:1.5fr .8fr .5fr 1fr;margin:0;border-top:1px solid #202b3b;padding-top:15px}.model-card dl div{display:grid;gap:4px}.model-card dt,.meta dt{color:#6f7f95;font-size:10px}.model-card dd{margin:0;font-size:11px}.base{font-size:11px;color:#7dbbc0;margin:15px 0 0}.state{text-align:center;min-height:330px;display:grid;place-content:center;justify-items:center;color:#8290a4}.state h2{margin:15px 0 4px}.state p{margin:0 0 20px}.state-icon{font-size:32px;color:#61cebf}.spinner{width:25px;height:25px;border:2px solid #2a394c;border-top-color:#62d1c2;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.center,.auth{min-height:100vh;display:grid;place-content:center;text-align:center}.auth{background:radial-gradient(circle at 50% 20%,#152d38,transparent 40%)}.login-card{text-align:left;width:min(420px,calc(100vw - 32px));padding:38px;background:#0e1622;border:1px solid #263347;border-radius:16px;box-shadow:0 30px 80px #0008}.login-card .brand-mark{margin-bottom:30px}.login-card h1{font-size:30px}.login-card form{display:grid;gap:10px;margin-top:28px}.login-card label,.form-panel label,.editor label{font-size:12px;font-weight:650;color:#bdc8d7;margin-top:8px}input,textarea{background:#0a111b;border:1px solid #2d3b50;border-radius:7px;padding:11px;color:#eef4fc;outline:none}input:focus,textarea:focus{border-color:#5ecfbe;box-shadow:0 0 0 3px #5ecfbe18}.privacy{font-size:10px;color:#6e7c90;text-align:center;margin:18px 0 0}.alert{color:#ffaaa7;background:#3a2025;border:1px solid #6b3038;border-radius:7px;padding:10px;font-size:12px}.page-alert{margin-bottom:20px;display:flex;justify-content:space-between}.back{border:0;background:none;color:#7f91a8;padding:0;margin-bottom:20px}.repo-header{align-items:center}.repo-header .badges{margin:0}.repo-header h1{font-size:33px}.commit{background:#111c29;border:1px solid #26364a;padding:9px;border-radius:7px;color:#88a3be}.tabs{display:flex;gap:22px;border-bottom:1px solid #243043;margin-bottom:24px;overflow:auto}.tabs button{border:0!important;border-radius:0!important;background:none!important;padding:12px 2px!important;color:#7f8da1!important;text-transform:capitalize;white-space:nowrap}.tabs button.active{color:#68d6c7!important;border-bottom:2px solid #68d6c7!important}.two-col{display:grid;grid-template-columns:1.5fr 1fr;gap:18px}.panel{background:#0e1621;border:1px solid #223044;border-radius:11px;padding:24px;margin-bottom:18px}.panel h2,.code-card h2{font-size:15px;margin:0 0 17px}.card-text{white-space:pre-wrap;color:#b7c1cf;line-height:1.75;font-family:Georgia,serif}.meta{display:grid;gap:18px;margin:0}.meta div{display:grid;gap:5px}.meta dd{margin:0;overflow-wrap:anywhere;font-size:12px}.panel-title{display:flex;align-items:center;justify-content:space-between;padding:20px 22px}.panel-title h2{margin:0}.panel-title>span{color:#75859b;font-size:11px}.flush{padding:0;overflow:hidden}.table .tr{display:grid;grid-template-columns:1fr 120px 100px;padding:12px 22px;border-top:1px solid #202d3e;font-size:12px;align-items:center}.table .tr span:last-child{text-align:right}.table .th{font-size:10px;color:#758499;text-transform:uppercase}.file{color:#cbd5e2}.timeline article{position:relative;display:flex;gap:18px;padding-bottom:24px}.timeline article>i{width:10px;height:10px;background:#62d1c2;border:2px solid #173934;border-radius:50%;margin-top:5px}.timeline article:not(:last-child):before{content:'';position:absolute;left:4px;top:15px;bottom:0;border-left:1px solid #2b3a4e}.timeline h3{font-size:13px;margin:0 0 5px}.timeline p,.timeline span{font-size:11px;color:#7e8da2}.timeline code{font-size:11px}.usage{display:grid;gap:15px}.callout{background:#11282a;border:1px solid #285457;color:#a4cecb;border-radius:9px;padding:14px;font-size:12px}.callout.warning{background:#2d2515;border-color:#5e4a20;color:#e8cc8a}.code-card{background:#0d141e;border:1px solid #223044;border-radius:10px;padding:18px}.code-card pre,.settings pre{background:#080d14;border:1px solid #1c2838;border-radius:7px;padding:16px;overflow:auto;color:#9bdccf;line-height:1.5;font-size:11px}.editor{display:grid;gap:9px}.feedback{color:#77d9b0;background:#102820;padding:10px;border-radius:7px;font-size:12px}.form-panel{max-width:700px}.form-panel form{display:grid;gap:9px}.form-panel small{color:#74849a}.form-panel button{justify-self:start;margin-top:14px}.source-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#090f18;border:1px solid #263448;border-radius:9px;padding:4px;margin-bottom:20px}.source-switch button{margin:0!important;border:0!important;background:transparent!important;color:#8493a7!important}.source-switch button.active{background:#1a2636!important;color:#edf4fc!important;box-shadow:0 1px 4px #0006}.hub-picker{position:relative;display:grid}.hub-picker>input{width:100%;padding-right:90px}.field-status{position:absolute;right:12px;top:12px;color:#6e8199;font-size:10px}.hub-results{margin-top:4px;max-height:330px;background:#0c141f;border:1px solid #32435a;border-radius:9px;box-shadow:0 10px 28px #0007;overflow-y:auto}.hub-results button{width:100%;margin:0!important;padding:11px 13px!important;border:0!important;border-bottom:1px solid #202d3e!important;border-radius:0!important;background:transparent!important;display:flex;align-items:center;justify-content:space-between;text-align:left}.hub-results button:hover{background:#172334!important}.hub-results button:last-child{border-bottom:0!important}.hub-results button>span:first-child{display:grid;gap:3px}.hub-results strong{font-size:12px;color:#dce5f2}.hub-results small,.hub-results button>span:last-child{font-size:9px;color:#718298}.hub-result-meta{display:grid;justify-items:end;gap:3px;white-space:nowrap}.hub-result-meta>span{color:#a8b8cb;font-size:11px}.hub-result-meta .restricted,.required{color:#f2b36f!important}.access-note{margin:2px 0 4px;padding:10px 12px;border:1px solid;border-radius:7px;font-size:11px;line-height:1.5}.access-note.restricted{color:#e9c18c;background:#2d2515;border-color:#5e4a20}.access-note.public{color:#99d7bf;background:#102820;border-color:#28513f}.optional{color:#718298;font-weight:450}.job-list{display:grid;gap:12px}.job{display:grid;grid-template-columns:1fr auto;gap:8px}.job h2{margin:8px 0 4px}.job p{color:#8090a5;font-size:11px;margin:0}.progress{grid-column:1/-1;height:5px;border-radius:9px;background:#202d3d;overflow:hidden}.progress i{display:block;height:100%;background:#5ed1c0}.job>small{color:#76869b}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:18px}.stats article{padding:22px;background:#0e1621;border:1px solid #223044;border-radius:11px;display:grid;gap:8px}.stats span,.stats small{color:#7e8da2;font-size:11px}.stats strong{font-size:27px;color:#f1f5fb}.storage-list{margin:0}.storage-list div{display:flex;justify-content:space-between;padding:13px 0;border-top:1px solid #202d3e}.storage-list dt{color:#8998ab}.storage-list dd{margin:0;font-weight:700}.settings{max-width:850px}.settings h2:not(:first-child){margin-top:32px}.settings p{color:#9aa8ba;line-height:1.7;font-size:13px}
-  .job-status{display:flex;align-items:center;gap:12px}.job-status strong{min-width:42px;text-align:right}.danger{color:#ffaaa7!important;border-color:#6b3038!important;background:#2b191e!important}
-  @media(max-width:800px){.shell>aside{position:fixed;inset:auto 0 0;width:auto;height:66px;flex-direction:row;padding:7px 10px;border:0;border-top:1px solid #202a39}.logo,.account{display:none}.shell nav{display:flex;justify-content:space-around;width:100%}.shell nav button{display:grid;justify-items:center;gap:1px;padding:5px;font-size:10px}.content{margin:0;padding:30px 16px 90px}header{align-items:flex-start}.model-grid,.two-col,.stats{grid-template-columns:1fr}.table .tr{grid-template-columns:1fr 70px 70px;padding:11px 12px}.repo-header{display:block}.commit{display:inline-block;margin-top:12px}.model-card dl{grid-template-columns:repeat(2,1fr);gap:12px}.toolbar>span{display:none}}
-</style>
+  {#if toast}<div class="toast" role="status"><CircleCheck size={16} />{toast}</div>{/if}
+{/if}
