@@ -85,15 +85,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	case strings.HasPrefix(r.URL.Path, "/api/miniface/v1/"):
 		s.serveAPI(w, r)
-	case r.URL.Path == "/api/whoami-v2":
-		s.serveWhoAmI(w, r)
-	case r.URL.Path == "/api/repos/create" || isPreuploadPath(r.URL.Path) || isCommitPath(r.URL.Path) || isLFSBatchPath(r.URL.Path) || strings.HasPrefix(r.URL.Path, "/lfs/uploads/"):
-		s.serveHubWrite(w, r)
 	case strings.HasPrefix(r.URL.Path, "/cas/"):
 		http.StripPrefix("/cas", s.storage.CASHandler()).ServeHTTP(w, r)
 	case strings.HasPrefix(r.URL.Path, "/objects/"):
 		http.StripPrefix("/objects", s.storage.ObjectHandler()).ServeHTTP(w, r)
-	case strings.HasPrefix(r.URL.Path, "/api/models/") || isResolvePath(r.URL.Path):
+	case r.URL.Path == "/api/whoami-v2" || r.URL.Path == "/api/repos/create" || strings.HasPrefix(r.URL.Path, "/api/models/") || isResolvePath(r.URL.Path) || isHubLFSPath(r.URL.Path):
 		s.storage.HubHandler().ServeHTTP(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/cas") || strings.HasPrefix(r.URL.Path, "/objects") || strings.HasPrefix(r.URL.Path, "/lfs/"):
 		http.NotFound(w, r)
@@ -107,40 +103,8 @@ func isResolvePath(value string) bool {
 	return len(parts) >= 5 && parts[2] == "resolve"
 }
 
-func (s *Server) serveWhoAmI(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	token, ok := bearerToken(r.Header.Get("Authorization"))
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	valid, err := s.storage.State().VerifyAdminToken(r.Context(), token)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "authentication unavailable")
-		return
-	}
-	if !valid {
-		writeError(w, http.StatusUnauthorized, "invalid token")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"type": "user", "id": "local:administrator", "name": "administrator",
-		"fullname": "Miniface Administrator", "email": "", "emailVerified": true,
-		"canPay": false, "periodEnd": nil, "isPro": false, "avatarUrl": "", "orgs": []any{},
-	})
-}
-
-func bearerToken(value string) (string, bool) {
-	parts := strings.SplitN(value, " ", 2)
-	returnValue := ""
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && parts[1] != "" && !strings.ContainsAny(parts[1], " \t\r\n,") {
-		returnValue = parts[1]
-	}
-	return returnValue, returnValue != ""
+func isHubLFSPath(value string) bool {
+	return strings.Contains(value, ".git/info/lfs/objects/")
 }
 
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {

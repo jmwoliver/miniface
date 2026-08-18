@@ -36,10 +36,8 @@ type Local struct {
 	state             *state.Store
 	tokens            *auth.CASTokenManager
 	capabilities      *capability.Service
-	baseURL           string
 	casBaseURL        string
 	dataDir           string
-	lfsKey            []byte
 	importRoots       []string
 	xetThreshold      int64
 	importSlots       chan struct{}
@@ -168,7 +166,9 @@ func Open(ctx context.Context, cfg config.Config) (OpenResult, error) {
 		Catalog: catalogStore, Content: ordinary,
 		CAS:              casserver.Options{Blobs: blobs, Index: index, Signer: capabilities},
 		HubAuthenticator: authenticator, RepositoryAuthorizer: authorizer, CASTokens: tokens,
-		HubBaseURL: baseURL, CASBaseURL: casBaseURL,
+		LFSIngester: newLFSIngester(tokens, casBaseURL),
+		HubBaseURL:  baseURL, CASBaseURL: casBaseURL,
+		LargeFileThreshold: cfg.XetThreshold, LFSUploadCapabilityKey: lfsKey,
 	})
 	if err != nil {
 		return OpenResult{}, fmt.Errorf("compose local Xet service: %w", err)
@@ -178,8 +178,7 @@ func Open(ctx context.Context, cfg config.Config) (OpenResult, error) {
 	cleanup, closeApp = false, false
 	return OpenResult{Storage: &Local{
 		service: service, catalog: catalogStore, ordinary: ordinary, blobs: blobs, index: index,
-		state: app, tokens: tokens, capabilities: capabilities, baseURL: baseURL, casBaseURL: casBaseURL, dataDir: cfg.DataDir,
-		lfsKey:      append([]byte(nil), lfsKey...),
+		state: app, tokens: tokens, capabilities: capabilities, casBaseURL: casBaseURL, dataDir: cfg.DataDir,
 		importRoots: append([]string(nil), cfg.ImportRoots...), xetThreshold: cfg.XetThreshold,
 		importSlots: make(chan struct{}, 1), huggingFaceURL: "https://huggingface.co",
 		huggingFaceClient: newHuggingFaceHTTPClient(), jobContext: jobContext, cancelJobs: cancelJobs,
@@ -301,8 +300,6 @@ func (l *Local) HubHandler() http.Handler    { return l.service.HubHandler() }
 func (l *Local) CASHandler() http.Handler    { return l.service.CASHandler() }
 func (l *Local) ObjectHandler() http.Handler { return l.capabilities }
 func (l *Local) State() *state.Store         { return l.state }
-func (l *Local) XetThreshold() int64         { return l.xetThreshold }
-func (l *Local) BaseURL() string             { return l.baseURL }
 func (l *Local) Ready(ctx context.Context) error {
 	_, err := l.service.ListRepositories(ctx, catalog.RepositoryQuery{Type: model.RepoTypeModel, Limit: 1})
 	return err

@@ -20,6 +20,7 @@ import (
 	"github.com/jmwoliver/xet-go/bucket"
 	"github.com/jmwoliver/xet-go/catalog"
 	"github.com/jmwoliver/xet-go/content"
+	"github.com/jmwoliver/xet-go/hfcompat"
 	"github.com/jmwoliver/xet-go/model"
 	"github.com/jmwoliver/xet-go/xetcas"
 	"github.com/jmwoliver/xet-go/xorb"
@@ -213,17 +214,43 @@ func (l *Local) publishImport(ctx context.Context, job *state.Job, repo model.Re
 }
 
 func (l *Local) newXetWriter(ctx context.Context, repo model.RepoKey, operationID string) (*xet.Client, error) {
+	return newXetWriter(ctx, l.tokens, l.casBaseURL, repo, operationID)
+}
+
+func newLFSIngester(tokens *auth.CASTokenManager, casBaseURL string) hfcompat.XetFileIngester {
+	return hfcompat.XetFileIngestFunc(func(ctx context.Context, repo model.RepoKey, source io.Reader) (hfcompat.XetFileIngestResult, error) {
+		operationID, err := randomOID()
+		if err != nil {
+			return hfcompat.XetFileIngestResult{}, err
+		}
+		client, err := newXetWriter(ctx, tokens, casBaseURL, repo, "lfs-"+operationID.String())
+		if err != nil {
+			return hfcompat.XetFileIngestResult{}, err
+		}
+		result, err := client.UploadSources(ctx, []xet.UploadSource{{Reader: source, Size: -1}})
+		if err != nil {
+			return hfcompat.XetFileIngestResult{}, err
+		}
+		file := result.Files[0]
+		if file.SHA256 == nil {
+			return hfcompat.XetFileIngestResult{}, errors.New("Xet upload did not return a SHA-256")
+		}
+		return hfcompat.XetFileIngestResult{Hash: file.Hash, Size: file.Size, SHA256: *file.SHA256}, nil
+	})
+}
+
+func newXetWriter(ctx context.Context, tokens *auth.CASTokenManager, casBaseURL string, repo model.RepoKey, operationID string) (*xet.Client, error) {
 	namespace, err := auth.RepositoryNamespace(repo)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := l.tokens.IssueCASToken(ctx, auth.CASTokenRequest{
+	issued, err := tokens.IssueCASToken(ctx, auth.CASTokenRequest{
 		Principal: auth.Principal{Subject: "local:importer"}, Namespace: namespace, Permissions: auth.CASWrite, TTL: time.Hour,
 	})
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := url.Parse(l.casBaseURL)
+	endpoint, err := url.Parse(casBaseURL)
 	if err != nil {
 		return nil, err
 	}

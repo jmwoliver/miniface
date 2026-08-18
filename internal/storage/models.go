@@ -113,6 +113,12 @@ func (l *Local) summary(ctx context.Context, snapshot model.Snapshot) (ModelSumm
 	if err != nil {
 		return ModelSummary{}, err
 	}
+	if metadata.ValidationStatus == "pending" {
+		metadata = l.metadataForSnapshot(ctx, snapshot.Repo, snapshot.OID, snapshot.Files)
+		if err := l.state.PutModelMetadata(ctx, string(snapshot.Repo.Namespace), string(snapshot.Repo.Name), snapshot.OID.String(), metadata); err != nil {
+			return ModelSummary{}, err
+		}
+	}
 	var size int64
 	for _, file := range snapshot.Files {
 		size += file.Ref.FileSize()
