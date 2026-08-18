@@ -15,9 +15,8 @@ The current alpha implements the useful local loop:
 3. Download it with `hf`, `huggingface_hub`, Transformers, PEFT, or Unsloth by
    setting `HF_ENDPOINT`.
 4. Fine-tune outside Miniface.
-5. Upload weights or adapters with `HfApi.upload_folder`/`hf upload` using the
-   documented basic-LFS write profile. Miniface streams large LFS bodies into
-   Xet instead of retaining Git LFS objects.
+5. Upload weights or adapters with `HfApi.upload_folder`/`hf upload` through
+   native Xet, with basic LFS as the no-`hf_xet` fallback.
 6. Reload the adapter with both its adapter revision and immutable base-model
    revision pinned.
 
@@ -192,17 +191,15 @@ To test the ordinary HTTP fallback in a **fresh process**:
 HF_HUB_DISABLE_XET=1 hf download local/my-model --revision "$REVISION"
 ```
 
-## Upload profile: basic LFS streamed into Xet
+## Upload profile: native Xet with basic LFS fallback
 
-Current `huggingface_hub` selects native Xet writes whenever `hf_xet` is
-available and does not automatically fall back to basic LFS. The supported
-initial write profile therefore requires `HF_HUB_DISABLE_XET=1` before Python
-imports `huggingface_hub` or before the `hf` process starts:
+When `hf_xet` is installed, `huggingface_hub` selects native Xet writes and
+Miniface exchanges a repository-scoped write token for its embedded Xet CAS.
+No Xet environment override is needed:
 
 ```bash
 export HF_ENDPOINT=http://127.0.0.1:8080
 export HF_TOKEN=mf_your_administrator_token
-export HF_HUB_DISABLE_XET=1
 
 hf upload local/my-adapter ./adapter-output --exclude README.md
 ```
@@ -214,7 +211,6 @@ import os
 
 os.environ["HF_ENDPOINT"] = "http://127.0.0.1:8080"
 os.environ["HF_TOKEN"] = "mf_your_administrator_token"
-os.environ["HF_HUB_DISABLE_XET"] = "1"  # before the next import
 
 from huggingface_hub import HfApi
 
@@ -229,6 +225,11 @@ commit = api.upload_folder(
 print(commit.oid)
 ```
 
+Clients without `hf_xet` use the basic LFS fallback. To exercise that profile
+explicitly, set `HF_HUB_DISABLE_XET=1` before importing `huggingface_hub` or
+starting `hf`; Miniface verifies the complete SHA-256 and length before
+streaming the object through the Xet engine.
+
 Root `README.md` is intentionally excluded from this generic local-only flow.
 `huggingface_hub` 1.27.0 sends root model cards to a hard-coded public
 `https://huggingface.co/api/validate-yaml` endpoint before contacting a custom
@@ -236,12 +237,12 @@ registry. Edit the model card in Miniface's UI/API instead; that path performs
 no public validation request. Non-root README files do not trigger that client
 behavior.
 
-Large files (currently 1 MiB and above) are classified as LFS, accepted through
-a short-lived self-authorizing PUT, hash/length verified, and streamed through
-the Xet engine. Small files are included in the NDJSON commit as ordinary
-content. Snapshot publication and ref advancement are atomic. Replaying an
-identical upload returns the existing immutable revision rather than creating a
-duplicate commit.
+Large files (currently 1 MiB and above) are classified for Xet/LFS transfer.
+Native clients write Xorbs and shards through scoped CAS routes; fallback
+clients receive a short-lived self-authorizing PUT. Small files are included in
+the NDJSON commit as ordinary content. Snapshot publication and ref advancement
+are atomic. Replaying an identical upload returns the existing immutable
+revision rather than creating a duplicate commit.
 
 ## Unsloth and PEFT adapters
 
@@ -291,7 +292,7 @@ generates the two-stage pinned load snippet for recognized adapters.
 
 The current implementation was exercised with:
 
-- `xet-go` `v0.0.0-20260812194312-dcfdb1b06846`
+- `xet-go` `v0.0.0-20260818203734-f6486669e3fc`
 - `huggingface_hub` 1.27.0
 - `hf_xet` 1.6.0
 - Svelte 5.38.7, SvelteKit 2.27.0, Vite 6.1.0, Bun 1.3.10
@@ -301,8 +302,9 @@ rooted and Hugging Face import behavior, ordinary and Xet storage selection,
 remote revision pinning and credential stripping, zero-transfer exact Xet
 clones, Hub resolve byte identity, metadata classification, and exact-range
 capability tampering and expiry. During implementation, the official Python
-client was also used to verify native-Xet and Xet-disabled downloads, basic-LFS
-adapter upload, retry idempotency, restart-stable OIDs, and byte identity.
+client was also used to verify native-Xet and Xet-disabled downloads, native-Xet
+and basic-LFS adapter uploads, retry idempotency, restart-stable OIDs, and byte
+identity.
 
 Run that official-client compatibility path repeatably with:
 
@@ -312,8 +314,10 @@ Run that official-client compatibility path repeatably with:
 
 The script creates a disposable data directory and Python virtual environment,
 installs the pinned client versions above, builds Miniface, uploads a 2 MiB
-adapter through basic LFS, downloads it through native Xet, restarts Miniface,
-and downloads the same immutable revision through the ordinary HTTP fallback.
+adapter through basic LFS, then downloads and updates it through native Xet in
+one Python process. It restarts Miniface, downloads the same immutable revision
+through the ordinary HTTP fallback, and verifies the upload appears with its
+adapter metadata in Miniface's own API.
 To reuse an already prepared environment, set `MINIFACE_PYTHON` to its Python
 executable. The script never prints the generated administrator token.
 
@@ -327,7 +331,8 @@ Implemented now:
 - Safe local-directory import and persistent job history.
 - Direct Hugging Face search/import with immutable source provenance and
   ephemeral private/gated-model credentials.
-- Hugging Face read APIs and the documented basic-LFS write subset.
+- Hugging Face model read/write APIs, native Xet transfer, and basic LFS
+  fallback.
 - Model-card editing through Miniface.
 - Architecture, quantization, remote-code warning, and PEFT base provenance.
 - Storage inventory and deduplication statistics.
@@ -336,7 +341,6 @@ Implemented now:
 Not implemented yet:
 
 - PostgreSQL/S3 remote profile and OIDC/multi-user ACLs.
-- Native Xet writes initiated directly by `huggingface_hub`.
 - Git smart HTTP, datasets, Spaces, inference serving, or a training scheduler.
 - Pull requests and the full hosted Hugging Face API surface.
 - Garbage collection. Physical immutable storage currently grows monotonically.
