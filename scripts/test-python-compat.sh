@@ -19,8 +19,15 @@ redact_log() {
 }
 
 cleanup() {
+  local status=$?
   stop_server
+  if [[ "$status" -ne 0 ]]; then
+    for log in "$work"/server-*.log; do
+      [[ -f "$log" ]] && redact_log "$log"
+    done
+  fi
   rm -rf -- "$work"
+  return "$status"
 }
 trap cleanup EXIT INT TERM
 
@@ -152,14 +159,15 @@ fi
 env -u HF_HUB_DISABLE_XET \
   HF_ENDPOINT="$endpoint" \
   HF_TOKEN="$token" \
-  "$python" - "$work/adapter/adapter_model.safetensors" "$work/native" "$revision" <<'PY'
+  "$python" - "$work/adapter" "$work/native" "$revision" "$work/revision" <<'PY'
 import pathlib
 import sys
 
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 
-expected, destination = map(pathlib.Path, sys.argv[1:3])
-revision = sys.argv[3]
+source, destination = map(pathlib.Path, sys.argv[1:3])
+revision, revision_file = sys.argv[3], pathlib.Path(sys.argv[4])
+expected = source / "adapter_model.safetensors"
 downloaded = pathlib.Path(snapshot_download(
     "local/compat-adapter",
     revision=revision,
@@ -167,8 +175,37 @@ downloaded = pathlib.Path(snapshot_download(
 )) / expected.name
 if downloaded.read_bytes() != expected.read_bytes():
     raise SystemExit("native Xet download did not match the uploaded bytes")
+
+# Keep the download and native Xet upload in this one process. huggingface_hub
+# and hf_xet cache endpoint/Xet settings at import time, so this catches the
+# process-global interoperability failure that separate commands would miss.
+expected.write_bytes(expected.read_bytes() + b"native-xet-update\n")
+commit = HfApi().upload_folder(
+    repo_id="local/compat-adapter",
+    folder_path=source,
+    ignore_patterns="README.md",
+    commit_message="Native Xet compatibility update",
+)
+if commit.oid == revision:
+    raise SystemExit("native Xet upload did not publish a new revision")
+revision_file.write_text(commit.oid, encoding="ascii")
 PY
 
+revision=$(cat "$work/revision")
+"$python" - "$work/server-first.log" <<'PY'
+import json
+import pathlib
+import sys
+
+records = []
+for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    try:
+        records.append(json.loads(line))
+    except json.JSONDecodeError:
+        pass
+if not any("/xet-write-token/" in record.get("path", "") and record.get("status") == 200 for record in records):
+    raise SystemExit("native upload did not obtain an Xet write token")
+PY
 stop_server
 start_server "$work/server-second.log"
 
@@ -195,4 +232,38 @@ if downloaded.read_bytes() != expected.read_bytes():
     raise SystemExit("ordinary HTTP download did not match the uploaded bytes")
 PY
 
-echo "Python compatibility passed: basic-LFS upload, native-Xet download, restart persistence, HTTP fallback"
+"$python" - "$endpoint" "$token" "$revision" <<'PY'
+import http.cookiejar
+import json
+import sys
+import urllib.request
+
+endpoint, token, revision = sys.argv[1:]
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+login = urllib.request.Request(
+    endpoint + "/api/miniface/v1/session",
+    data=json.dumps({"token": token}).encode(),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+with opener.open(login) as response:
+    if not json.load(response).get("authenticated"):
+        raise SystemExit("Miniface UI login failed after Hub upload")
+with opener.open(endpoint + "/api/miniface/v1/models") as response:
+    models = json.load(response)["models"]
+model = next((item for item in models if item["id"] == "local/compat-adapter"), None)
+if model is None:
+    raise SystemExit("Hub-uploaded model is absent from the Miniface model API")
+expected = {
+    "sha": revision,
+    "kind": "adapter",
+    "base_model": "local/base-model",
+    "base_revision": "0123456789abcdef0123456789abcdef01234567",
+    "validation_status": "valid",
+}
+actual = {key: model.get(key) for key in expected}
+if actual != expected:
+    raise SystemExit(f"Miniface metadata did not integrate the Hub commit: {actual} != {expected}")
+PY
+
+echo "Python compatibility passed: basic-LFS upload, native-Xet download then upload in one process, restart persistence, HTTP fallback"
