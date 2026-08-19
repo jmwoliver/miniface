@@ -3,7 +3,7 @@ module github.com/jmwoliver/miniface
 go 1.26.0
 
 require (
-	github.com/jmwoliver/xet-go v0.0.0-20260818203734-f6486669e3fc
+	github.com/jmwoliver/xet-go v0.1.0
 	modernc.org/sqlite v1.46.1
 )
 

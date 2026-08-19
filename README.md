@@ -292,7 +292,7 @@ generates the two-stage pinned load snippet for recognized adapters.
 
 The current implementation was exercised with:
 
-- `xet-go` `v0.0.0-20260818203734-f6486669e3fc`
+- `xet-go` `v0.1.0`
 - `huggingface_hub` 1.27.0
 - `hf_xet` 1.6.0
 - Svelte 5.38.7, SvelteKit 2.27.0, Vite 6.1.0, Bun 1.3.10
