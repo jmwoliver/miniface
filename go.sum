@@ -40,8 +40,8 @@ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo
 github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/jmwoliver/blake3 v0.0.0-20260801225300-b11c1cdefad3 h1:KFso3QZvO7JDt7Mbunv1EvhjqCIgho3H47wFHgGGaqs=
 github.com/jmwoliver/blake3 v0.0.0-20260801225300-b11c1cdefad3/go.mod h1:cx4mmxt51qOv+rhDpVSumVJPLm+46uX7OLrLL4BVGpM=
-github.com/jmwoliver/xet-go v0.1.0 h1:1hpVe8bkdWG+yKbzCLNtCJQ1QzqyvrUINoF0DEkMgbc=
-github.com/jmwoliver/xet-go v0.1.0/go.mod h1:oLvgeHW5Hhh6XxgIh3Mw9hJfcLIA0Ysp6GGOGDUz1Jc=
+github.com/jmwoliver/xet-go v0.1.1 h1:GZkEA/jYzNR3jQzdEcdqNHfal8NuYjyuL8m/PsDiOxs=
+github.com/jmwoliver/xet-go v0.1.1/go.mod h1:oLvgeHW5Hhh6XxgIh3Mw9hJfcLIA0Ysp6GGOGDUz1Jc=
 github.com/klauspost/compress v1.18.7 h1:aUyZsS4kH3QTKurYhAOwAHxllVPnOthb3vPfnF1Ehjw=
 github.com/klauspost/compress v1.18.7/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/klauspost/cpuid/v2 v2.0.9 h1:lgaqFMSdTdQYdZ04uHyN2d/eKdOMyi2YLSvlQIBFYa4=

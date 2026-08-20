@@ -44,7 +44,7 @@ The detailed product and architecture blueprint is in [PLAN.md](PLAN.md).
 
 Miniface application state is kept separate from the `xet-go` catalog and CAS
 schemas. The catalog is authoritative for repositories, immutable snapshots,
-refs, and file identities. `xet-go` is pinned to an exact pseudo-version and is
+refs, and file identities. `xet-go` is pinned to an exact release and is
 contained behind `internal/storage`.
 
 ## Requirements
@@ -56,10 +56,7 @@ contained behind `internal/storage`.
 Bun is the package manager and task runner. Vite remains the Svelte compiler,
 development server, HMR implementation, and production bundler.
 
-> **Distribution gate:** `xet-go` currently has no explicit public license.
-> Miniface can be developed against it by the repository owner, but Miniface
-> and binaries embedding it must not be publicly distributed until that
-> dependency has an explicit compatible license.
+`xet-go` is available under the MIT License.
 
 ## Build and run
 
