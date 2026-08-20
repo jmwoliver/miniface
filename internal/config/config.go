@@ -34,16 +34,27 @@ type Config struct {
 
 const DefaultXetThreshold int64 = 1 << 20
 
-func Parse(args []string) (Config, error) {
+func DefaultDataDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return Config{}, fmt.Errorf("find home directory: %w", err)
+		return "", fmt.Errorf("find home directory: %w", err)
 	}
 	dataDir := os.Getenv("XDG_DATA_HOME")
 	if dataDir == "" {
 		dataDir = filepath.Join(home, ".local", "share")
 	}
-	dataDir = filepath.Join(dataDir, "miniface")
+	return filepath.Join(dataDir, "miniface"), nil
+}
+
+func Parse(args []string) (Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Config{}, fmt.Errorf("find home directory: %w", err)
+	}
+	dataDir, err := DefaultDataDir()
+	if err != nil {
+		return Config{}, err
+	}
 
 	var cfg Config
 	var baseURL string

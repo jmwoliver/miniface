@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/jmwoliver/xet-go v0.1.1
+	golang.org/x/crypto v0.42.0
 	modernc.org/sqlite v1.46.1
 )
 

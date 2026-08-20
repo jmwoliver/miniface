@@ -51,9 +51,9 @@ type Local struct {
 }
 
 type OpenResult struct {
-	Storage    *Local
-	AdminToken string
-	TokenNew   bool
+	Storage        *Local
+	SetupSecret    string
+	SetupSecretNew bool
 }
 
 func Open(ctx context.Context, cfg config.Config) (OpenResult, error) {
@@ -73,9 +73,9 @@ func Open(ctx context.Context, cfg config.Config) (OpenResult, error) {
 			_ = app.Close()
 		}
 	}()
-	adminToken, tokenNew, err := app.EnsureAdminToken(ctx)
+	setupSecret, setupSecretNew, err := app.EnsureBootstrapSecret(ctx)
 	if err != nil {
-		return OpenResult{}, fmt.Errorf("initialize administrator token: %w", err)
+		return OpenResult{}, fmt.Errorf("initialize administrator setup: %w", err)
 	}
 	capabilityKey, _, err := app.GetOrCreateSecret(ctx, "range-capability-hmac", 32)
 	if err != nil {
@@ -137,23 +137,47 @@ func Open(ctx context.Context, cfg config.Config) (OpenResult, error) {
 		return OpenResult{}, fmt.Errorf("initialize CAS tokens: %w", err)
 	}
 	authenticator := auth.HubAuthenticatorFunc(func(ctx context.Context, credential string) (auth.Principal, error) {
-		valid, err := app.VerifyAdminToken(ctx, credential)
+		token, valid, err := app.AuthenticatePersonalAccessToken(ctx, credential)
 		if err != nil {
 			return auth.Principal{}, auth.ErrUnavailable
 		}
-		if !valid {
-			return auth.Principal{}, auth.ErrUnauthenticated
+		if valid {
+			return auth.Principal{Subject: "local:administrator:pat:" + token.ID}, nil
 		}
-		return auth.Principal{Subject: "local:administrator"}, nil
+		setupRequired, err := app.SetupRequired(ctx)
+		if err != nil {
+			return auth.Principal{}, auth.ErrUnavailable
+		}
+		if setupRequired {
+			legacyValid, err := app.VerifyAdminToken(ctx, credential)
+			if err != nil {
+				return auth.Principal{}, auth.ErrUnavailable
+			}
+			if legacyValid {
+				return auth.Principal{Subject: "local:administrator:legacy"}, nil
+			}
+		}
+		return auth.Principal{}, auth.ErrUnauthenticated
 	})
 	authorizer := auth.RepositoryAuthorizerFunc(func(ctx context.Context, access auth.RepositoryAccess) error {
-		if access.Principal.Subject != "local:administrator" {
+		if access.Principal.Subject == "local:administrator:legacy" {
+			return nil
+		}
+		const prefix = "local:administrator:pat:"
+		if !strings.HasPrefix(access.Principal.Subject, prefix) {
+			return auth.ErrPermissionDenied
+		}
+		allowed, err := app.PersonalAccessTokenAllows(ctx, strings.TrimPrefix(access.Principal.Subject, prefix), access.Permission == auth.RepositoryWrite)
+		if err != nil {
+			return auth.ErrUnavailable
+		}
+		if !allowed {
 			return auth.ErrPermissionDenied
 		}
 		if access.Permission == auth.RepositoryWrite {
 			return nil
 		}
-		_, err := catalogStore.GetRepository(ctx, access.Repository)
+		_, err = catalogStore.GetRepository(ctx, access.Repository)
 		if errors.Is(err, catalog.ErrNotFound) {
 			return auth.ErrPermissionDenied
 		}
@@ -183,7 +207,7 @@ func Open(ctx context.Context, cfg config.Config) (OpenResult, error) {
 		importSlots: make(chan struct{}, 1), huggingFaceURL: "https://huggingface.co",
 		huggingFaceClient: newHuggingFaceHTTPClient(), jobContext: jobContext, cancelJobs: cancelJobs,
 		jobCancels: make(map[string]context.CancelCauseFunc),
-	}, AdminToken: adminToken, TokenNew: tokenNew}, nil
+	}, SetupSecret: setupSecret, SetupSecretNew: setupSecretNew}, nil
 }
 
 func ensurePrivateDirectory(path string) error {
@@ -272,6 +296,10 @@ func availableStorageBytes(path string) (uint64, error) {
 		return 0, err
 	}
 	return stats.Bavail * uint64(stats.Bsize), nil
+}
+
+func (l *Local) AvailableStorageBytes() (uint64, error) {
+	return availableStorageBytes(l.dataDir)
 }
 
 func availableMemoryBytes() (uint64, bool) {

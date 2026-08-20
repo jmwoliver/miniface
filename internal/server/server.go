@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jmwoliver/miniface/internal/config"
@@ -27,11 +26,6 @@ import (
 
 const sessionCookie = "miniface_session"
 
-type session struct {
-	csrf      string
-	expiresAt time.Time
-}
-
 type Server struct {
 	storage     *storage.Local
 	logger      *slog.Logger
@@ -39,9 +33,7 @@ type Server struct {
 	static      http.Handler
 	staticFiles fs.FS
 	csp         string
-
-	mu       sync.Mutex
-	sessions map[string]session
+	config      config.Config
 }
 
 func New(cfg config.Config, registry *storage.Local, logger *slog.Logger) (*Server, error) {
@@ -65,7 +57,7 @@ func New(cfg config.Config, registry *storage.Local, logger *slog.Logger) (*Serv
 	return &Server{
 		storage: registry, logger: logger, secure: cfg.BaseURL.Scheme == "https",
 		static: http.FileServer(http.FS(assets)), staticFiles: assets,
-		csp: contentSecurityPolicy(index), sessions: make(map[string]session),
+		csp: contentSecurityPolicy(index), config: cfg,
 	}, nil
 }
 

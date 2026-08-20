@@ -681,9 +681,10 @@ Unsloth Studio's frontend and backend are AGPL-3.0-only. Miniface may learn from
 ### 11.1 Local mode
 
 - Bind to loopback by default.
-- Generate one high-entropy administrator token on first setup.
-- Display the token once and store only a verifier.
-- Require bearer authentication for writes.
+- Generate and atomically consume one high-entropy bootstrap secret on first setup.
+- Store the administrator password with Argon2id and use persistent HttpOnly browser sessions.
+- Issue hashed, named, revocable, optionally expiring read or read/write PATs for Hub clients.
+- Provide host-local administrator recovery that invalidates sessions and PATs.
 - Make anonymous reads an explicit opt-in policy.
 - Keep browser sessions distinct from Hub personal access tokens.
 - Use CSRF protection for browser-originated writes.

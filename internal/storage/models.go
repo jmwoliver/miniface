@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jmwoliver/xet-go/bucket"
 	"github.com/jmwoliver/xet-go/catalog"
@@ -61,13 +64,34 @@ type ModelDetail struct {
 }
 
 type StorageStats struct {
-	Profile         string  `json:"profile"`
-	LogicalBytes    int64   `json:"logical_bytes"`
-	PhysicalBytes   int64   `json:"physical_bytes"`
-	Repositories    int     `json:"repositories"`
-	OrdinaryObjects int     `json:"ordinary_objects"`
-	XetObjects      int     `json:"xet_objects"`
-	DedupRatio      float64 `json:"dedup_ratio"`
+	Profile             string                     `json:"profile"`
+	LogicalBytes        int64                      `json:"logical_bytes"`
+	PhysicalBytes       int64                      `json:"physical_bytes"`
+	Repositories        int                        `json:"repositories"`
+	OrdinaryObjects     int                        `json:"ordinary_objects"`
+	XetObjects          int                        `json:"xet_objects"`
+	DedupRatio          float64                    `json:"dedup_ratio"`
+	RepositoryBreakdown []StorageRepositorySummary `json:"repository_breakdown"`
+}
+
+type StorageRepositorySummary struct {
+	ID           string `json:"id"`
+	Owner        string `json:"owner"`
+	Name         string `json:"name"`
+	Revision     string `json:"revision"`
+	LogicalBytes int64  `json:"logical_bytes"`
+	FileCount    int    `json:"file_count"`
+	Revisions    int    `json:"revisions"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type FilePreview struct {
+	FileEntry
+	Revision    string `json:"revision"`
+	ContentType string `json:"content_type,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Previewable bool   `json:"previewable"`
+	Truncated   bool   `json:"truncated"`
 }
 
 func repoKey(owner, name string) (model.RepoKey, error) {
@@ -133,11 +157,22 @@ func (l *Local) summary(ctx context.Context, snapshot model.Snapshot) (ModelSumm
 }
 
 func (l *Local) Model(ctx context.Context, owner, name string) (ModelDetail, error) {
+	return l.ModelRevision(ctx, owner, name, "main")
+}
+
+func (l *Local) ModelRevision(ctx context.Context, owner, name, revisionValue string) (ModelDetail, error) {
 	repo, err := repoKey(owner, name)
 	if err != nil {
 		return ModelDetail{}, err
 	}
-	snapshot, err := l.service.ResolveRevision(ctx, repo, mainRevision())
+	if revisionValue == "" {
+		revisionValue = "main"
+	}
+	revision, err := model.ParseRevision(revisionValue)
+	if err != nil {
+		return ModelDetail{}, fmt.Errorf("%w: invalid revision", bucket.ErrInvalid)
+	}
+	snapshot, err := l.service.ResolveRevision(ctx, repo, revision)
 	if err != nil {
 		return ModelDetail{}, err
 	}
@@ -180,6 +215,68 @@ func (l *Local) Model(ctx context.Context, owner, name string) (ModelDetail, err
 		return ModelDetail{}, err
 	}
 	return ModelDetail{Model: summary, Files: files, Revisions: revisions, Card: card}, nil
+}
+
+func (l *Local) OpenModelFile(ctx context.Context, owner, name, revisionValue, pathValue string, selected *content.Range) (*bucket.FileReader, error) {
+	repo, err := repoKey(owner, name)
+	if err != nil {
+		return nil, err
+	}
+	if revisionValue == "" {
+		revisionValue = "main"
+	}
+	revision, err := model.ParseRevision(revisionValue)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid revision", bucket.ErrInvalid)
+	}
+	filePath, err := model.ParseFilePath(pathValue)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid file path", bucket.ErrInvalid)
+	}
+	return l.service.OpenFile(ctx, repo, revision, filePath, bucket.OpenOptions{Range: selected})
+}
+
+func fileEntryFromModel(entry model.FileEntry) FileEntry {
+	file := FileEntry{Path: string(entry.Path), Size: entry.Ref.FileSize(), Kind: string(entry.Ref.Kind())}
+	if sum, ok := entry.Ref.SHA256(); ok {
+		file.SHA256 = hex.EncodeToString(sum[:])
+	}
+	if hash, ok := entry.Ref.XetHash(); ok {
+		file.XetHash = hash.String()
+	}
+	return file
+}
+
+func (l *Local) PreviewModelFile(ctx context.Context, owner, name, revisionValue, pathValue string) (FilePreview, error) {
+	const previewLimit int64 = 64 << 10
+	if revisionValue == "" {
+		revisionValue = "main"
+	}
+	opened, err := l.OpenModelFile(ctx, owner, name, revisionValue, pathValue, nil)
+	if err != nil {
+		return FilePreview{}, err
+	}
+	defer opened.Body.Close()
+	limit := opened.FileSize
+	if limit > previewLimit {
+		limit = previewLimit
+	}
+	body, err := io.ReadAll(io.LimitReader(opened.Body, limit))
+	if err != nil {
+		return FilePreview{}, err
+	}
+	preview := FilePreview{
+		FileEntry: fileEntryFromModel(opened.Entry), Revision: revisionValue,
+		ContentType: mime.TypeByExtension(filepath.Ext(pathValue)), Truncated: opened.FileSize > previewLimit,
+	}
+	if preview.ContentType == "" {
+		preview.ContentType = "application/octet-stream"
+	}
+	if utf8.Valid(body) && !strings.ContainsRune(string(body), '\x00') {
+		preview.Previewable = true
+		preview.Text = string(body)
+	}
+	return preview, nil
 }
 
 func (l *Local) readCard(ctx context.Context, repo model.RepoKey, oid model.OID) (string, error) {
@@ -274,9 +371,27 @@ func (l *Local) Stats(ctx context.Context) (StorageStats, error) {
 	if err != nil {
 		return StorageStats{}, err
 	}
-	stats := StorageStats{Profile: "local · SQLite + filesystem", Repositories: len(models), DedupRatio: 1}
+	stats := StorageStats{Profile: "local", Repositories: len(models), DedupRatio: 1, RepositoryBreakdown: make([]StorageRepositorySummary, 0, len(models))}
 	for _, item := range models {
 		stats.LogicalBytes += item.LogicalBytes
+		revisionCount := 0
+		repo, _ := repoKey(item.Owner, item.Name)
+		cursor := ""
+		for {
+			page, err := l.service.ListSnapshots(ctx, repo, catalog.SnapshotQuery{Cursor: cursor, Limit: 1000})
+			if err != nil {
+				return StorageStats{}, err
+			}
+			revisionCount += len(page.Items)
+			if page.NextCursor == "" {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		stats.RepositoryBreakdown = append(stats.RepositoryBreakdown, StorageRepositorySummary{
+			ID: item.ID, Owner: item.Owner, Name: item.Name, Revision: item.SHA, LogicalBytes: item.LogicalBytes,
+			FileCount: item.FileCount, Revisions: revisionCount, UpdatedAt: item.UpdatedAt,
+		})
 	}
 	cursor := ""
 	for {

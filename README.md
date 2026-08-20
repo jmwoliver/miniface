@@ -81,18 +81,33 @@ Start the local server:
   --import-root "$HOME/models"
 ```
 
-On first startup, Miniface prints a high-entropy administrator token exactly
-once. Save it in a password manager. Only its SHA-256 verifier is retained in
-the private application database. The same token is used to sign into the UI
-and as `HF_TOKEN` for CLI/Python clients. Browser login exchanges it for an
-HttpOnly, SameSite session cookie and a separate CSRF token; the UI does not
-persist or recover the administrator token.
+On first startup, Miniface prints a high-entropy, one-time setup secret. Enter
+it in the browser and create the administrator password; setup consumes the
+secret atomically. Browser sign-in creates a persistent HttpOnly, SameSite
+session with a separate CSRF token. Password verifiers use Argon2id.
 
-Open `http://127.0.0.1:8080` and enter that token. By default local-directory
-imports are limited to the user's home directory. Repeat `--import-root` to
-define narrower or additional roots. Imports use Go's rooted filesystem API,
-reject symlinks, special files, `.git`, and `.cache`, and re-check source file
-identity after ingest.
+Create a named personal access token under **Settings → Tokens** before using
+the `hf` CLI or Python clients. PATs are shown once, stored only as SHA-256
+verifiers, independently revocable, optionally expiring, and scoped to read or
+read/write access. Browser passwords, browser sessions, Miniface PATs, and the
+optional Hugging Face credential used to mirror a private model are separate
+credentials.
+
+If the administrator password is lost, stop Miniface and run:
+
+```bash
+./miniface auth recover --data-dir "$HOME/.local/share/miniface"
+```
+
+Recovery revokes all PATs, invalidates every browser session, and prints a new
+one-time setup secret. Existing installations that still have the former
+shared `mf_…` administrator token may enter it once on the setup screen; it is
+revoked when setup completes.
+
+By default local-directory imports are limited to the user's home directory.
+Repeat `--import-root` to define narrower or additional roots. Imports use Go's
+rooted filesystem API, reject symlinks, special files, `.git`, and `.cache`, and
+re-check source file identity after ingest.
 
 ### Import directly from Hugging Face
 
@@ -143,8 +158,8 @@ available memory to cover Xorb encoding, the local CAS server, and process
 overhead.
 
 Run `./miniface -h` for all configuration flags. Non-loopback binds require
-`--allow-remote` and an HTTPS `--base-url`; the current static-token profile is
-still intended for private local use, not an Internet-facing deployment.
+`--allow-remote` and an HTTPS `--base-url`; the current single-administrator
+profile is still intended for private use, not an Internet-facing deployment.
 
 ## Download profile: Xet enabled
 
@@ -152,7 +167,7 @@ Set the endpoint and token **before** starting Python or the `hf` CLI:
 
 ```bash
 export HF_ENDPOINT=http://127.0.0.1:8080
-export HF_TOKEN=mf_your_administrator_token
+export HF_TOKEN=mf_pat_your_token
 
 hf download local/my-model --revision 0123456789abcdef0123456789abcdef01234567
 ```
@@ -163,7 +178,7 @@ Python:
 import os
 
 os.environ["HF_ENDPOINT"] = "http://127.0.0.1:8080"
-os.environ["HF_TOKEN"] = "mf_your_administrator_token"
+os.environ["HF_TOKEN"] = "mf_pat_your_token"
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -196,7 +211,7 @@ No Xet environment override is needed:
 
 ```bash
 export HF_ENDPOINT=http://127.0.0.1:8080
-export HF_TOKEN=mf_your_administrator_token
+export HF_TOKEN=mf_pat_your_token
 
 hf upload local/my-adapter ./adapter-output --exclude README.md
 ```
@@ -207,7 +222,7 @@ Equivalent explicit Python flow:
 import os
 
 os.environ["HF_ENDPOINT"] = "http://127.0.0.1:8080"
-os.environ["HF_TOKEN"] = "mf_your_administrator_token"
+os.environ["HF_TOKEN"] = "mf_pat_your_token"
 
 from huggingface_hub import HfApi
 
@@ -249,7 +264,7 @@ Load a base model at an immutable revision:
 import os
 
 os.environ["HF_ENDPOINT"] = "http://127.0.0.1:8080"
-os.environ["HF_TOKEN"] = "mf_your_administrator_token"
+os.environ["HF_TOKEN"] = "mf_pat_your_token"
 
 from unsloth import FastLanguageModel
 
@@ -289,12 +304,13 @@ generates the two-stage pinned load snippet for recognized adapters.
 
 The current implementation was exercised with:
 
-- `xet-go` `v0.1.0`
+- `xet-go` `v0.1.1`
 - `huggingface_hub` 1.27.0
 - `hf_xet` 1.6.0
 - Svelte 5.38.7, SvelteKit 2.27.0, Vite 6.1.0, Bun 1.3.10
 
-Repository tests cover token persistence, CSRF-authenticated UI imports,
+Repository tests cover setup-secret consumption, password and PAT persistence,
+scope/expiry/revocation, persistent browser sessions, CSRF-authenticated UI imports,
 rooted and Hugging Face import behavior, ordinary and Xet storage selection,
 remote revision pinning and credential stripping, zero-transfer exact Xet
 clones, Hub resolve byte identity, metadata classification, and exact-range
@@ -316,7 +332,7 @@ one Python process. It restarts Miniface, downloads the same immutable revision
 through the ordinary HTTP fallback, and verifies the upload appears with its
 adapter metadata in Miniface's own API.
 To reuse an already prepared environment, set `MINIFACE_PYTHON` to its Python
-executable. The script never prints the generated administrator token.
+executable. The script never prints the generated setup secret or PAT.
 
 ## Current scope and limitations
 
@@ -324,7 +340,8 @@ Implemented now:
 
 - Local SQLite/filesystem profile and one embedded static UI binary.
 - Model-only repositories, immutable snapshots, branches/refs used by clients.
-- Static local bearer authentication plus browser sessions and CSRF.
+- Single-administrator password authentication, persistent browser sessions,
+  CSRF, one-time setup, recovery, and named revocable PATs.
 - Safe local-directory import and persistent job history.
 - Direct Hugging Face search/import with immutable source provenance and
   ephemeral private/gated-model credentials.
@@ -332,7 +349,8 @@ Implemented now:
   fallback.
 - Model-card editing through Miniface.
 - Architecture, quantization, remote-code warning, and PEFT base provenance.
-- Storage inventory and deduplication statistics.
+- Hierarchical revision-aware file browsing, bounded text previews, downloads,
+  repository storage inventory, and deduplication statistics.
 - Liveness/readiness, structured request logs, and graceful shutdown.
 
 Not implemented yet:

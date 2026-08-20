@@ -123,7 +123,7 @@ func TestHuggingFaceImportStreamsPinnedSnapshotIntoXetAndClonesExactDuplicate(t 
 		t.Fatal(err)
 	}
 	completed := waitForStorageJob(t, registry.State(), job.ID)
-	if completed.State != "completed" || completed.Progress != 1 || completed.CurrentBytes != int64(len(configBody)+len(weights)) {
+	if completed.State != "completed" || completed.Phase != "Completed" || completed.Progress != 1 || completed.CurrentBytes != int64(len(configBody)+len(weights)) || completed.SourceRepo != "source/model" || completed.SourceRev != commit {
 		t.Fatalf("completed job = %#v", completed)
 	}
 	if cdnReceivedAuthorization.Load() {

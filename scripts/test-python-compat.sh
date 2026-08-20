@@ -15,7 +15,7 @@ stop_server() {
 }
 
 redact_log() {
-  sed -E 's/"token":"[^"]+"/"token":"[redacted]"/g' "$1" >&2
+  sed -E 's/"(token|setup_secret)":"[^"]+"/"\1":"[redacted]"/g' "$1" >&2
 }
 
 cleanup() {
@@ -104,9 +104,9 @@ PY
 
 start_server "$work/server-first.log"
 
-token=
+setup_secret=
 for _ in $(seq 1 100); do
-  token=$("$python" - "$work/server-first.log" <<'PY'
+  setup_secret=$("$python" - "$work/server-first.log" <<'PY'
 import json
 import pathlib
 import sys
@@ -116,18 +116,46 @@ for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         record = json.loads(line)
     except json.JSONDecodeError:
         continue
-    if record.get("msg", "").startswith("generated administrator token"):
-        print(record["token"])
+    if record.get("msg", "").startswith("generated one-time administrator setup secret"):
+        print(record["setup_secret"])
         break
 PY
   )
-  [[ -n "$token" ]] && break
+  [[ -n "$setup_secret" ]] && break
   sleep 0.05
 done
-if [[ -z "$token" ]]; then
-  echo "First startup did not produce an administrator token" >&2
+if [[ -z "$setup_secret" ]]; then
+  echo "First startup did not produce an administrator setup secret" >&2
   exit 1
 fi
+
+password='correct horse battery staple'
+token=$("$python" - "$endpoint" "$setup_secret" "$password" <<'PY'
+import http.cookiejar
+import json
+import sys
+import urllib.request
+
+endpoint, setup_secret, password = sys.argv[1:]
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+def post(path, body, csrf=""):
+    headers = {"Content-Type": "application/json"}
+    if csrf:
+        headers["X-CSRF-Token"] = csrf
+    request = urllib.request.Request(endpoint + path, data=json.dumps(body).encode(), headers=headers, method="POST")
+    with opener.open(request) as response:
+        return json.load(response)
+
+session = post("/api/miniface/v1/setup", {"setup_secret": setup_secret, "password": password})
+created = post(
+    "/api/miniface/v1/settings/tokens",
+    {"name": "Python compatibility", "scopes": ["write"], "expires_in_days": 1},
+    session["csrf_token"],
+)
+print(created["token"])
+PY
+)
 
 HF_ENDPOINT="$endpoint" \
 HF_TOKEN="$token" \
@@ -232,17 +260,17 @@ if downloaded.read_bytes() != expected.read_bytes():
     raise SystemExit("ordinary HTTP download did not match the uploaded bytes")
 PY
 
-"$python" - "$endpoint" "$token" "$revision" <<'PY'
+"$python" - "$endpoint" "$password" "$revision" <<'PY'
 import http.cookiejar
 import json
 import sys
 import urllib.request
 
-endpoint, token, revision = sys.argv[1:]
+endpoint, password, revision = sys.argv[1:]
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 login = urllib.request.Request(
     endpoint + "/api/miniface/v1/session",
-    data=json.dumps({"token": token}).encode(),
+    data=json.dumps({"password": password}).encode(),
     headers={"Content-Type": "application/json"},
     method="POST",
 )

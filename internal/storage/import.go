@@ -75,6 +75,9 @@ func (l *Local) StartImport(ctx context.Context, source, repoID, message string)
 }
 
 func (l *Local) runImport(ctx context.Context, job *state.Job, source, owner, name, message string) error {
+	if err := l.state.SetJobPhase(ctx, job, "Checking files"); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(source)
 	if err != nil {
 		return err
@@ -88,6 +91,9 @@ func (l *Local) runImport(ctx context.Context, job *state.Job, source, owner, na
 		return errors.New("import directory contains no files")
 	}
 	if err := l.state.UpdateJob(ctx, job, "running", 0, 0, total, ""); err != nil {
+		return err
+	}
+	if err := l.state.SetJobPhase(ctx, job, "Transferring"); err != nil {
 		return err
 	}
 	repo, _ := repoKey(owner, name)
@@ -182,6 +188,9 @@ func (l *Local) ensureImportRepository(ctx context.Context, repo model.RepoKey) 
 
 func (l *Local) publishImport(ctx context.Context, job *state.Job, repo model.RepoKey, owner, name, message string, entries []model.FileEntry, metadata state.ModelMetadata, total int64) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := l.state.SetJobPhase(ctx, job, "Publishing"); err != nil {
 		return err
 	}
 	slices.SortFunc(entries, func(left, right model.FileEntry) int {

@@ -223,6 +223,8 @@ func (l *Local) StartHuggingFaceImport(ctx context.Context, sourceRepo, sourceRe
 		message = "Import from Hugging Face"
 	}
 	job := state.NewJob(destinationRepo, "huggingface-import")
+	job.SourceRepo = sourceRepo
+	job.SourceRev = sourceRevision
 	if err := l.state.PutJob(ctx, job); err != nil {
 		return state.Job{}, err
 	}
@@ -256,8 +258,17 @@ func splitHuggingFaceRepo(repoID string) (string, string, error) {
 }
 
 func (l *Local) runHuggingFaceImport(ctx context.Context, job *state.Job, sourceRepo, requestedRevision, owner, name, message, token string) error {
+	if err := l.state.SetJobPhase(ctx, job, "Resolving repository"); err != nil {
+		return err
+	}
 	commit, err := l.resolveHuggingFaceRevision(ctx, sourceRepo, requestedRevision, token)
 	if err != nil {
+		return err
+	}
+	if err := l.state.SetJobSource(ctx, job, sourceRepo, commit); err != nil {
+		return err
+	}
+	if err := l.state.SetJobPhase(ctx, job, "Checking files"); err != nil {
 		return err
 	}
 	files, total, err := l.huggingFaceTree(ctx, sourceRepo, commit, token)
@@ -268,6 +279,9 @@ func (l *Local) runHuggingFaceImport(ctx context.Context, job *state.Job, source
 		return errors.New("Hugging Face repository contains no files")
 	}
 	if err := l.state.UpdateJob(ctx, job, "running", 0, 0, total, ""); err != nil {
+		return err
+	}
+	if err := l.state.SetJobPhase(ctx, job, "Transferring"); err != nil {
 		return err
 	}
 	repo, _ := repoKey(owner, name)
