@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - name: Install frontend dependencies
+        run: bun install --cwd web --frozen-lockfile
+      - name: Check frontend
+        run: bun run --cwd web check
+      - name: Test frontend
+        run: bun run --cwd web test
+      - name: Build frontend
+        run: bun run --cwd web build
+      - name: Test Go packages
+        run: go test ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: web/build
+          if-no-files-found: error
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Restore verified frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: web/build
+      - name: Build release archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/jmwoliver/miniface/internal/server.minifaceVersion=${GITHUB_REF_NAME}" \
+            -o dist/miniface ./cmd/miniface
+          tar -C dist -czf "dist/miniface_${GOOS}_${GOARCH}.tar.gz" miniface
+          rm dist/miniface
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum miniface_*.tar.gz > checksums.txt
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "Miniface ${GITHUB_REF_NAME}"

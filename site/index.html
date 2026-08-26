@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#173b36" />
+    <meta
+      name="description"
+      content="Miniface is a local-first model registry. Import, version, inspect, and reuse your models with Hugging Face-compatible tools and Xet storage."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Miniface | Your models, close at hand" />
+    <meta
+      property="og:description"
+      content="A private, local-first registry for the models you train, tune, and keep."
+    />
+    <meta property="og:url" content="https://miniface.co/" />
+    <meta property="og:image" content="https://miniface.co/assets/screenshots/library.webp" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://miniface.co/" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/site.js" defer></script>
+    <title>Miniface | Your models, close at hand</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-header>
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="Miniface home">
+          <img src="/assets/favicon.svg" alt="" width="40" height="40" />
+          <span>miniface</span>
+        </a>
+
+        <button class="menu-button" type="button" aria-expanded="false" aria-controls="site-navigation" data-menu-button>
+          <span class="sr-only">Toggle navigation</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
+
+        <nav id="site-navigation" class="site-nav" aria-label="Main navigation" data-menu>
+          <a href="#features">Features</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#install">Install</a>
+          <a class="github-link" href="https://github.com/jmwoliver/miniface">
+            <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 22v-3.9c0-1 .1-1.5-.5-2.1 2.8-.3 5.7-1.4 5.7-6.2 0-1.4-.5-2.5-1.3-3.4.1-.3.6-1.6-.1-3.4 0 0-1.1-.3-3.6 1.3a12.4 12.4 0 0 0-6.5 0C6.2 2.7 5.1 3 5.1 3c-.7 1.8-.2 3.1-.1 3.4a4.9 4.9 0 0 0-1.3 3.4c0 4.8 2.9 5.9 5.7 6.2-.4.3-.7.8-.8 1.6-.7.3-2.6.9-3.7-1.1 0 0-.7-1.2-2-1.3 0 0-1.3 0-.1.8 0 0 .9.4 1.5 1.8 0 0 .8 2.2 2.7 4.2 1.9V22" />
+            </svg>
+            GitHub
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="top" class="hero section-shell">
+        <div class="hero-copy reveal">
+          <p class="eyebrow"><span></span> Local-first model registry</p>
+          <h1>Your models,<br /><em>close at hand.</em></h1>
+          <p class="hero-lede">
+            A writable, Hugging Face-compatible registry for the models and adapters you train and keep. Import, inspect, version, and reuse them with the tools already in your workflow.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#install">
+              Install Miniface
+              <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14 0m-5-5 5 5-5 5" /></svg>
+            </a>
+            <a class="button button-secondary" href="#product">See it in action</a>
+          </div>
+          <p class="platform-note">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+            One self-contained binary · Linux &amp; macOS
+          </p>
+        </div>
+
+        <div class="hero-install reveal reveal-delay">
+          <div class="command-card">
+            <div class="command-topline">
+              <span><i></i><i></i><i></i></span>
+              <small>terminal</small>
+              <button class="copy-button" type="button" data-copy="curl -fsSL https://miniface.co/install.sh | sh" aria-label="Copy install command">
+                <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4V5h11v1" /></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <pre><code><span class="prompt">$</span> curl -fsSL https://miniface.co/install.sh | sh
+<span class="output">Installed Miniface to ~/.local/bin/miniface</span>
+<span class="prompt">$</span> miniface
+<span class="output">Registry listening at http://127.0.0.1:8080</span></code></pre>
+          </div>
+          <div class="hero-orbit orbit-one" aria-hidden="true">01</div>
+          <div class="hero-orbit orbit-two" aria-hidden="true">local</div>
+        </div>
+      </section>
+
+      <section id="product" class="product-stage section-shell reveal" aria-labelledby="product-title">
+        <div class="browser-frame">
+          <div class="browser-bar" aria-hidden="true">
+            <span class="browser-dots"><i></i><i></i><i></i></span>
+            <span class="browser-address"><svg width="13" height="13" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" /></svg>127.0.0.1:8080/models</span>
+            <span></span>
+          </div>
+          <img
+            src="/assets/screenshots/library.webp"
+            width="1440"
+            height="900"
+            alt="Miniface model library showing locally stored model repositories, architectures, revisions, and sizes"
+          />
+        </div>
+        <div class="stage-caption">
+          <p id="product-title"><strong>Your private model workshop.</strong> Everything you need to find, inspect, and use a model. Nothing you don’t.</p>
+          <span>Runs on your machine</span>
+        </div>
+      </section>
+
+      <section class="tool-strip" aria-label="Compatible tools">
+        <div class="section-shell">
+          <p>Use the tools already in your workflow</p>
+          <ul>
+            <li>HF CLI</li>
+            <li>huggingface_hub</li>
+            <li>Transformers</li>
+            <li>PEFT</li>
+            <li>Unsloth</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="positioning" aria-labelledby="positioning-title">
+        <div class="positioning-inner section-shell reveal">
+          <div>
+            <p class="eyebrow"><span></span> Where Miniface fits</p>
+            <h2 id="positioning-title">Train and run elsewhere.<br /><em>Keep models here.</em></h2>
+          </div>
+          <p>Unsloth and PEFT fine-tune models. Ollama and vLLM run them. Unlike a download cache, Miniface is a writable local registry for versioned model repositories, adapters, and provenance.</p>
+        </div>
+      </section>
+
+      <section id="features" class="features section-shell section-pad">
+        <div class="section-intro reveal">
+          <p class="eyebrow"><span></span> Small on purpose</p>
+          <h2>A model registry for the <em>local loop.</em></h2>
+          <p>Miniface keeps the useful slice of a model hub close: repositories, immutable revisions, storage, and client compatibility.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="25" height="25" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14M7 17h10V5H7zM10 8h4M10 11h4" /></svg>
+            </div>
+            <p class="card-number">01</p>
+            <h3>Local by default</h3>
+            <p>One binary serves the registry, API, Xet storage, and web UI. It binds to loopback and keeps your workshop private.</p>
+          </article>
+          <article class="feature-card reveal reveal-delay-one">
+            <div class="feature-icon signal">
+              <svg width="25" height="25" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9v12M6 7c7 0 5 10 12 10M6 15a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" /></svg>
+            </div>
+            <p class="card-number">02</p>
+            <h3>Every revision pinned</h3>
+            <p>Imports and uploads become immutable snapshots. Copy an exact revision into CLI, Transformers, PEFT, or Unsloth.</p>
+          </article>
+          <article class="feature-card reveal reveal-delay-two">
+            <div class="feature-icon sage">
+              <svg width="25" height="25" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5" /></svg>
+            </div>
+            <p class="card-number">03</p>
+            <h3>Xet under the hood</h3>
+            <p>Large model files use chunked, deduplicated storage. Shared weights take less physical space without changing logical files.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow" class="workflow section-pad">
+        <div class="section-shell">
+          <div class="workflow-heading reveal">
+            <div>
+              <p class="eyebrow inverse"><span></span> The whole loop</p>
+              <h2>From Hub to fine-tune<br />to <em>your registry.</em></h2>
+            </div>
+            <p>Keep training where it belongs. Miniface gives the artifacts around it a dependable home.</p>
+          </div>
+
+          <ol class="workflow-steps">
+            <li class="reveal">
+              <span>01</span>
+              <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 19h14" /></svg></div>
+              <h3>Bring it in</h3>
+              <p>Import a local folder or mirror a pinned model directly from Hugging Face.</p>
+            </li>
+            <li class="reveal reveal-delay-one">
+              <span>02</span>
+              <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M12 4v16M7 7l10 10M17 7 7 17" /></svg></div>
+              <h3>Train your way</h3>
+              <p>Fine-tune with Unsloth, TRL, PEFT, or the training code you already use.</p>
+            </li>
+            <li class="reveal reveal-delay-two">
+              <span>03</span>
+              <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m-4 4 4-4 4 4M5 5h14" /></svg></div>
+              <h3>Publish locally</h3>
+              <p>Upload adapters or merged weights with the familiar Hugging Face client API.</p>
+            </li>
+            <li class="reveal reveal-delay-three">
+              <span>04</span>
+              <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg></div>
+              <h3>Reload exactly</h3>
+              <p>Pin both adapter and base-model revisions for a reproducible local workflow.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="showcase section-shell section-pad">
+        <article class="showcase-row reveal">
+          <div class="showcase-copy">
+            <p class="eyebrow"><span></span> Import</p>
+            <h2>Start from here<br />or <em>Hugging Face.</em></h2>
+            <p>Point Miniface at a local directory, or search and mirror a public, private, or gated repository at an immutable source revision.</p>
+            <ul class="check-list">
+              <li><span>✓</span> Streams directly into managed storage</li>
+              <li><span>✓</span> Keeps private access tokens in memory only</li>
+              <li><span>✓</span> Tracks every import in Activity</li>
+            </ul>
+          </div>
+          <div class="screenshot-card tilted-right">
+            <img
+              src="/assets/screenshots/import.webp"
+              width="1440"
+              height="900"
+              loading="lazy"
+              alt="Miniface import form with local folder and Hugging Face source options"
+            />
+          </div>
+        </article>
+
+        <article class="showcase-row reverse reveal">
+          <div class="showcase-copy">
+            <p class="eyebrow"><span></span> Inspect &amp; use</p>
+            <h2>Know what you have.<br /><em>Use exactly that.</em></h2>
+            <p>See architecture, quantization, files, provenance, and revision history. Then copy a pinned snippet for the tool you need.</p>
+            <ul class="check-list">
+              <li><span>✓</span> Browse files without unpacking snapshots</li>
+              <li><span>✓</span> Pin adapter and base revisions independently</li>
+              <li><span>✓</span> Copy ready-to-run client examples</li>
+            </ul>
+          </div>
+          <div class="screenshot-card tilted-left">
+            <img
+              src="/assets/screenshots/model.webp"
+              width="1440"
+              height="900"
+              loading="lazy"
+              alt="Miniface model overview with architecture, immutable revision, and model details"
+            />
+          </div>
+        </article>
+      </section>
+
+      <section class="compatible section-pad">
+        <div class="section-shell compatible-grid">
+          <div class="compatible-copy reveal">
+            <p class="eyebrow inverse"><span></span> Familiar clients</p>
+            <h2>Change the endpoint.<br /><em>Keep the workflow.</em></h2>
+            <p>Miniface implements the model APIs your existing tools expect. Set two environment variables, then work with local repositories by ID and revision.</p>
+            <div class="compatibility-pills">
+              <span>Downloads</span><span>Uploads</span><span>Range reads</span><span>Native Xet</span><span>LFS fallback</span>
+            </div>
+          </div>
+          <div class="code-window reveal reveal-delay">
+            <div class="code-tabs">
+              <span class="active">Shell</span><span>Python</span>
+              <button class="copy-button light" type="button" data-copy="export HF_ENDPOINT=http://127.0.0.1:8080&#10;export HF_TOKEN=mf_pat_your_token&#10;&#10;hf download local/ember-3b --revision 4e7c2b9d" aria-label="Copy client example">
+                <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4V5h11v1" /></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <pre><code><span class="comment"># Point Hugging Face clients at Miniface</span>
+<span class="key">export</span> HF_ENDPOINT=<span class="string">http://127.0.0.1:8080</span>
+<span class="key">export</span> HF_TOKEN=<span class="string">mf_pat_your_token</span>
+
+<span class="comment"># Download one immutable snapshot</span>
+hf download <span class="string">local/ember-3b</span> \
+  --revision <span class="string">4e7c2b9d…</span></code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="scope section-shell section-pad">
+        <div class="scope-card reveal">
+          <div class="scope-mark">
+            <img src="/assets/favicon-reversed.svg" alt="" width="92" height="92" loading="lazy" />
+          </div>
+          <div>
+            <p class="eyebrow inverse"><span></span> Focused by design</p>
+            <h2>Built for a private workshop.</h2>
+            <p>Miniface is a single-administrator registry designed to run locally. It does not try to be a hosted social hub, training scheduler, or Internet-facing multi-user service.</p>
+          </div>
+          <dl>
+            <div><dt>Profile</dt><dd>Local filesystem + SQLite</dd></div>
+            <div><dt>Access</dt><dd>Loopback by default</dd></div>
+            <div><dt>Today</dt><dd>Linux &amp; macOS</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section id="install" class="install section-pad">
+        <div class="install-decoration" aria-hidden="true"><span>mf</span><span>mf</span><span>mf</span></div>
+        <div class="section-shell install-inner reveal">
+          <div>
+            <p class="eyebrow"><span></span> Ready when you are</p>
+            <h2>Give your models<br />a place <em>at home.</em></h2>
+            <p>Install the binary, run <code>miniface</code>, and open your private registry.</p>
+          </div>
+          <div class="install-command">
+            <div>
+              <span class="prompt">$</span>
+              <code>curl -fsSL https://miniface.co/install.sh | sh</code>
+              <button class="copy-button light" type="button" data-copy="curl -fsSL https://miniface.co/install.sh | sh" aria-label="Copy install command">
+                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4V5h11v1" /></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <p>Downloads a checksum-verified release from GitHub. Review the <a href="/install.sh">install script</a> first if you prefer.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-inner">
+        <a class="brand reversed" href="#top" aria-label="Miniface home">
+          <img src="/assets/favicon-reversed.svg" alt="" width="38" height="38" />
+          <span>miniface</span>
+        </a>
+        <p>Your models, close at hand.</p>
+        <nav aria-label="Footer navigation">
+          <a href="https://github.com/jmwoliver/miniface">GitHub</a>
+          <a href="https://github.com/jmwoliver/miniface/blob/main/README.md">Documentation</a>
+          <a href="#install">Install</a>
+        </nav>
+      </div>
+    </footer>
+
+    <div class="toast" role="status" aria-live="polite" data-toast>Copied to clipboard</div>
+  </body>
+</html>

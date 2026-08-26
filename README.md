@@ -47,7 +47,7 @@ schemas. The catalog is authoritative for repositories, immutable snapshots,
 refs, and file identities. `xet-go` is pinned to an exact release and is
 contained behind `internal/storage`.
 
-## Requirements
+## Build requirements
 
 - Go 1.26+
 - Bun 1.3+
@@ -57,6 +57,21 @@ Bun is the package manager and task runner. Vite remains the Svelte compiler,
 development server, HMR implementation, and production bundler.
 
 `xet-go` is available under the MIT License.
+
+## Install
+
+Release binaries are available for Linux and macOS on x86-64 and ARM64. The
+installer downloads the matching binary, verifies its release checksum, and
+places it in `$HOME/.local/bin` by default:
+
+```bash
+curl -fsSL https://miniface.co/install.sh | sh
+miniface
+```
+
+Set `MINIFACE_INSTALL_DIR` to choose another directory or
+`MINIFACE_VERSION=vX.Y.Z` to install a specific release. The GitHub repository
+and its release assets must be public for an unauthenticated install.
 
 ## Build and run
 

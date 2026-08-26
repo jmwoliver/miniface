@@ -19,6 +19,10 @@ import (
 	"github.com/jmwoliver/xet-go/content"
 )
 
+// minifaceVersion is set by release builds and falls back to Go module build
+// information for versioned installs.
+var minifaceVersion = "development"
+
 type sessionResponse struct {
 	Authenticated bool   `json:"authenticated"`
 	SetupRequired bool   `json:"setup_required"`
@@ -100,9 +104,11 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			s.internalError(w, err)
 			return
 		}
-		version := "development"
-		if build, ok := debug.ReadBuildInfo(); ok && build.Main.Version != "" && build.Main.Version != "(devel)" {
-			version = build.Main.Version
+		version := minifaceVersion
+		if version == "development" {
+			if build, ok := debug.ReadBuildInfo(); ok && build.Main.Version != "" && build.Main.Version != "(devel)" {
+				version = build.Main.Version
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"endpoint": s.config.BaseURL.String(), "listen": s.config.Listen, "secure": s.secure,
